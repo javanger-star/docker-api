@@ -1,0 +1,1578 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AIに検品を教える</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+<style>
+body { background: #f4f6fb; }
+
+/* ステップカード */
+.step-card {
+  background: #fff;
+  border-radius: 12px;
+  border: 2px solid #dee2e6;
+  margin-bottom: 12px;
+  transition: border-color .2s, box-shadow .2s;
+  overflow: hidden;
+}
+.step-card.active {
+  border-color: #0d6efd;
+  box-shadow: 0 2px 12px rgba(13,110,253,.15);
+}
+.step-card.done {
+  border-color: #198754;
+}
+.step-header {
+  padding: 14px 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  cursor: pointer;
+  user-select: none;
+}
+.step-circle {
+  width: 32px; height: 32px; border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-weight: bold; font-size: 15px; flex-shrink: 0;
+  background: #dee2e6; color: #6c757d;
+}
+.step-card.active .step-circle { background: #0d6efd; color: #fff; }
+.step-card.done  .step-circle { background: #198754; color: #fff; }
+.step-title { font-weight: 600; font-size: 15px; }
+.step-subtitle { font-size: 12px; color: #6c757d; }
+.step-check { margin-left: auto; font-size: 18px; display: none; }
+.step-card.done .step-check { display: block; }
+.step-body { padding: 0 16px 16px; display: none; }
+.step-card.active .step-body { display: block; }
+
+/* フォルダ選択 */
+.folder-btn {
+  border: 2px solid #dee2e6; border-radius: 8px; padding: 8px 12px;
+  cursor: pointer; transition: all .15s; background: #fff; text-align: left;
+}
+.folder-btn:hover { border-color: #0d6efd; background: #f0f4ff; }
+.folder-btn.selected { border-color: #0d6efd; background: #e7f1ff; }
+.folder-btn .folder-name { font-weight: 600; font-size: 13px; }
+.folder-btn .folder-stat { font-size: 11px; color: #6c757d; margin-top: 2px; }
+
+/* ドロップゾーン */
+#drop-zone {
+  border: 2px dashed #adb5bd; border-radius: 8px; padding: 24px;
+  text-align: center; cursor: pointer; transition: all .2s; background: #f8f9fa;
+}
+#drop-zone:hover, #drop-zone.dragover { border-color: #0d6efd; background: #f0f4ff; }
+
+/* クラスバッジ */
+.class-badge {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 3px 8px; border-radius: 20px; font-size: 12px; color: #fff; font-weight: 500;
+}
+
+/* 右カラム */
+.img-thumb {
+  width: 110px; height: 72px; object-fit: cover;
+  border-radius: 6px; cursor: pointer;
+}
+.annotate-card {
+  position: sticky; top: 16px;
+}
+.progress-label { font-size: 12px; color: #6c757d; }
+
+/* 完了バナー */
+.done-banner {
+  background: linear-gradient(135deg,#198754,#20c997);
+  color: #fff; border-radius: 10px; padding: 16px 20px; margin-bottom: 12px;
+}
+</style>
+</head>
+<body>
+<div id="nav-placeholder"></div>
+
+<div class="container-fluid py-3" style="max-width:1300px">
+
+  <div class="mb-3">
+    <h4 class="mb-0">🤖 AIに検品を教える</h4>
+    <p class="text-muted mb-0" style="font-size:14px">
+      写真を撮って「これがトレイ、これがボルト」と枠を描くだけ。Google Colabが無料でAIを学習させてくれます。
+    </p>
+  </div>
+
+  <div class="row g-3">
+
+    <!-- ─── 左カラム: ステップ ─── -->
+    <div class="col-lg-5">
+
+      <!-- STEP 1: フォルダを選ぶ -->
+      <div class="step-card active" id="step1-card">
+        <div class="step-header" onclick="toggleStep(1)">
+          <div class="step-circle">1</div>
+          <div>
+            <div class="step-title">写真フォルダを選択</div>
+            <div class="step-subtitle">PCのフォルダを選ぶと、フォルダ名がトレイ名になります</div>
+          </div>
+          <div class="step-check">✅</div>
+        </div>
+        <div class="step-body">
+          <div class="small text-muted mb-3">
+            撮影した写真が入っているフォルダを選択してください。<br>
+            <strong>フォルダ名がそのままトレイ名になります。</strong>フォルダ内の写真も自動でアップロードされます。
+          </div>
+
+          <div class="border border-info rounded p-2 mb-3 bg-info bg-opacity-10" style="font-size:11px">
+            <div class="fw-bold mb-1">📷 立体トレイを使う場合の撮影方法</div>
+            <div>深さ（高さ）のあるトレイは、<strong>内容物の充填量を変えて複数回撮影</strong>することで精度が上がります。</div>
+            <div class="mt-1">
+              <div>① <strong>空のトレイ</strong>を撮影（10〜20枚）</div>
+              <div>② <strong>半分程度の内容物</strong>を入れて撮影（10〜20枚）</div>
+              <div>③ <strong>通常の満載状態</strong>で撮影（20〜30枚）</div>
+            </div>
+            <div class="text-muted mt-1">これらをすべて同じフォルダにまとめてアップロードしてください。</div>
+          </div>
+
+          <!-- フォルダピッカー -->
+          <div id="folder-picker-zone"
+               onclick="document.getElementById('folder-picker').click()"
+               style="border:2px dashed #adb5bd;border-radius:8px;padding:32px;text-align:center;
+                      cursor:pointer;background:#f8f9fa;transition:all .2s"
+               onmouseover="this.style.borderColor='#0d6efd';this.style.background='#f0f4ff'"
+               onmouseout="this.style.borderColor='#adb5bd';this.style.background='#f8f9fa'">
+            <div style="font-size:2.5rem">📂</div>
+            <div class="fw-bold mt-1">クリックしてフォルダを選択</div>
+            <div class="small text-muted mt-1">例: <code>TRAY_001</code> というフォルダを選ぶと<br>トレイ名が <code>TRAY_001</code> になります</div>
+          </div>
+          <input id="folder-picker" type="file" webkitdirectory style="display:none"
+                 onchange="handleFolderSelect(this.files)">
+
+          <!-- アップロード進捗 -->
+          <div id="step1-upload-progress" class="mt-3 d-none">
+            <div class="d-flex justify-content-between small text-muted mb-1">
+              <span id="step1-upload-status">アップロード中...</span>
+              <span id="step1-upload-pct">0%</span>
+            </div>
+            <div class="progress" style="height:8px">
+              <div class="progress-bar progress-bar-striped progress-bar-animated"
+                   id="step1-upload-bar" style="width:0%"></div>
+            </div>
+          </div>
+
+          <!-- 選択後の状態 -->
+          <div id="step1-selected" class="d-none mt-3">
+            <div class="alert alert-success py-2 mb-2" style="font-size:13px">
+              📁 <strong id="step1-selected-name"></strong>
+              <span class="text-muted ms-2" id="step1-selected-count" style="font-size:12px"></span>
+            </div>
+            <button class="btn btn-sm btn-outline-secondary w-100" onclick="clearFolder()">
+              別のフォルダを選ぶ
+            </button>
+          </div>
+
+          <!-- 以前登録したフォルダ -->
+          <div id="existing-folders-section" class="mt-3 d-none">
+            <div class="small text-muted mb-1">以前登録したフォルダに切り替える</div>
+            <div id="folder-list" class="d-flex flex-wrap gap-1"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- STEP 2: 検出するものを登録 -->
+      <div class="step-card" id="step2-card">
+        <div class="step-header" onclick="toggleStep(2)">
+          <div class="step-circle">2</div>
+          <div>
+            <div class="step-title">AIに何を覚えさせますか？</div>
+            <div class="step-subtitle">「トレイ」と「製品の種類」の2種類を登録します</div>
+          </div>
+          <div class="step-check">✅</div>
+        </div>
+        <div class="step-body">
+
+          <!-- フォルダ未選択時 -->
+          <div id="step2-no-folder" class="text-center text-muted py-4">
+            <div style="font-size:2rem">⬆️</div>
+            <div class="fw-bold mt-1" style="font-size:13px">まず Step 1 でフォルダを選択してください</div>
+            <div style="font-size:11px">フォルダごとに独立したクラス設定を管理します</div>
+            <div id="cleanup-section" class="mt-3 d-none">
+              <div class="text-warning small mb-1">⚠️ 旧バージョンの共有クラスが残っています</div>
+              <button class="btn btn-sm btn-outline-danger" onclick="cleanupGlobalClasses()">
+                🗑 旧クラスを削除して初期化
+              </button>
+            </div>
+          </div>
+
+          <!-- フォルダ選択済み時 -->
+          <div id="step2-classes" style="display:none">
+            <!-- フォルダ名バッジ -->
+            <div class="alert alert-primary py-2 mb-3 d-flex align-items-center gap-2" style="font-size:12px">
+              <span>📁</span>
+              <strong id="step2-folder-badge"></strong>
+              <span class="text-muted">のクラス設定（このフォルダ専用）</span>
+            </div>
+
+            <!-- ① トレイクラス -->
+            <div class="border rounded p-3 mb-3">
+              <div class="d-flex align-items-start gap-2 mb-2">
+                <span style="font-size:1.3rem;line-height:1">🔲</span>
+                <div>
+                  <div class="fw-bold small">① トレイクラス</div>
+                  <div class="text-muted" style="font-size:11px">
+                    <strong>tray</strong>（全体枠）は必須。4隅クラスは視差補正に使います。
+                  </div>
+                </div>
+              </div>
+              <div id="tray-class-rows"></div>
+              <div id="tray-corners-add" class="mt-2 d-none">
+                <button class="btn btn-sm btn-outline-primary w-100" style="font-size:11px"
+                        onclick="addTrayCorners()">
+                  ＋ 4隅クラスをまとめて追加 (tray_lu / tray_ru / tray_ld / tray_rd)
+                </button>
+              </div>
+            </div>
+
+            <!-- ② 製品の種類 -->
+            <div class="border rounded p-3">
+              <div class="d-flex align-items-start gap-2 mb-2">
+                <span style="font-size:1.3rem;line-height:1">📦</span>
+                <div>
+                  <div class="fw-bold small">② 製品の種類</div>
+                  <div class="text-muted" style="font-size:11px">
+                    このフォルダで検出したいもの（ボルト・ナット等）を登録します。
+                  </div>
+                </div>
+              </div>
+              <div id="product-class-list" class="mb-2"></div>
+              <div class="d-flex flex-wrap gap-1 mb-2">
+                <span class="small text-muted align-self-center">よく使う:</span>
+                <button class="btn btn-sm btn-outline-secondary" style="font-size:11px"
+                        onclick="addProductClass('bolt')">+ bolt（ボルト）</button>
+                <button class="btn btn-sm btn-outline-secondary" style="font-size:11px"
+                        onclick="addProductClass('nut')">+ nut（ナット）</button>
+                <button class="btn btn-sm btn-outline-secondary" style="font-size:11px"
+                        onclick="addProductClass('screw')">+ screw（ネジ）</button>
+                <button class="btn btn-sm btn-outline-secondary" style="font-size:11px"
+                        onclick="addProductClass('washer')">+ washer（ワッシャー）</button>
+              </div>
+              <div class="input-group input-group-sm">
+                <input id="new-class" type="text" class="form-control"
+                       placeholder="製品名を入力して追加（例: bolt_M5、nut_M6）">
+                <button class="btn btn-primary" onclick="addProductClassFromInput()">追加</button>
+              </div>
+              <div class="text-muted mt-1" style="font-size:11px">
+                Enterキーでも追加できます。スペースは _ に変換されます。
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- STEP 3: 写真を追加（オプション） -->
+      <div class="step-card" id="step3-card">
+        <div class="step-header" onclick="toggleStep(3)">
+          <div class="step-circle">3</div>
+          <div>
+            <div class="step-title">写真を追加する（オプション）</div>
+            <div class="step-subtitle">さらに写真を足したい場合に使います</div>
+          </div>
+          <div class="step-check">✅</div>
+        </div>
+        <div class="step-body">
+          <div class="small text-muted mb-2">
+            Step 1 でフォルダを選ぶと写真が自動アップロードされます。<br>
+            追加で写真を足したい場合はここから追加できます。
+            <span class="badge bg-secondary ms-1" id="step3-folder-badge" style="font-size:11px"></span>
+          </div>
+
+          <div id="drop-zone" onclick="document.getElementById('upload-img').click()">
+            <div style="font-size:2rem">📸</div>
+            <div class="fw-bold">写真をここにドロップ</div>
+            <div class="small text-muted mt-1">またはクリックして選択（複数可）</div>
+          </div>
+          <input id="upload-img" type="file" accept="image/*" multiple style="display:none"
+                 onchange="uploadImages()">
+
+          <div id="upload-progress" class="mt-2 d-none">
+            <div class="progress">
+              <div class="progress-bar progress-bar-striped progress-bar-animated" id="upload-bar" style="width:0%"></div>
+            </div>
+            <div class="small text-muted mt-1" id="upload-status">アップロード中...</div>
+          </div>
+          <div id="upload-result" class="mt-2"></div>
+        </div>
+      </div>
+
+      <!-- STEP 4: 枠を描く -->
+      <div class="step-card" id="step4-card">
+        <div class="step-header" onclick="toggleStep(4)">
+          <div class="step-circle">4</div>
+          <div>
+            <div class="step-title">写真に枠を描く</div>
+            <div class="step-subtitle">「ここがトレイ、ここがボルト」とAIに教えます</div>
+          </div>
+          <div class="step-check">✅</div>
+        </div>
+        <div class="step-body">
+          <div class="small text-muted mb-3">
+            アノテーション画面が開きます。写真の上をドラッグして枠を描き、
+            種類を選ぶだけです。<br>
+            <strong>全ての写真に、全てのアイテムの枠を描いてください。</strong>
+          </div>
+
+          <div class="bg-light rounded p-2 mb-3" style="font-size:12px">
+            <div class="fw-bold mb-1">描き方のコツ</div>
+            <div>①「tray」はカメラから見た内側の可視エリアを囲む（外壁・縁は含めない）</div>
+            <div>②トレイの中のアイテム（ボルト等）を1つずつ囲む</div>
+            <div>③全ての写真で同じように繰り返す</div>
+          </div>
+
+          <div class="border border-warning rounded p-2 mb-3 bg-warning bg-opacity-10" style="font-size:11px">
+            <div class="fw-bold mb-1">📦 立体トレイ対応の撮影・アノテーション</div>
+            <div class="mb-1">深さのあるトレイ（箱型）は、<strong>充填量が違う状態で必ず複数撮影</strong>してください：</div>
+            <div>・<strong>空のトレイ</strong> — tray だけ描く（製品なし）</div>
+            <div>・<strong>半分の状態</strong> — 全製品をアノテーション</div>
+            <div>・<strong>満載の状態</strong> — 全製品をアノテーション</div>
+            <div class="mt-1 text-muted">
+              カメラが完全に真上でない場合、内容物の高さによって見かけ位置が変わります（視差）。
+              高さのバリエーションを学習データに含めることで推定精度が向上します。
+            </div>
+          </div>
+
+          <!-- 進捗 -->
+          <div class="mb-3">
+            <div class="d-flex justify-content-between progress-label mb-1">
+              <span>枠描き進捗</span>
+              <span id="step4-progress-text">0 / 0 枚</span>
+            </div>
+            <div class="progress" style="height:8px">
+              <div class="progress-bar bg-success" id="step4-bar" style="width:0%"></div>
+            </div>
+          </div>
+
+          <div class="d-flex flex-column gap-2">
+            <!-- メインボタン: 1画像ずつモード -->
+            <a href="/admin/annotate?mode=per-image" id="annotate-btn-main"
+               class="btn btn-primary w-100 fw-bold">
+              ▶ アノテーション開始（1画像ずつ）
+            </a>
+            <div class="text-muted" style="font-size:11px;text-align:center;">
+              1枚ごとに「トレイ → 製品」の順で枠を描きます
+            </div>
+            <!-- サブボタン: 個別モード（修正用） -->
+            <div class="d-flex gap-2 mt-1">
+              <a href="/admin/annotate?mode=tray" id="annotate-btn-tray"
+                 class="btn btn-sm btn-outline-secondary flex-fill" style="font-size:12px;">
+                🔲 トレイのみ
+              </a>
+              <a href="/admin/annotate?mode=product" id="annotate-btn-product"
+                 class="btn btn-sm btn-outline-secondary flex-fill" style="font-size:12px;">
+                📦 製品のみ
+              </a>
+            </div>
+            <div class="text-muted" style="font-size:10px;text-align:center;">
+              ↑ 特定の枠を修正したいときに使用
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- STEP 5: 学習 -->
+      <div class="step-card" id="step5-card">
+        <div class="step-header" onclick="toggleStep(5)">
+          <div class="step-circle">5</div>
+          <div>
+            <div class="step-title">AIを学習させる</div>
+            <div class="step-subtitle">クラウド（Colab）または自分のPCで学習できます</div>
+          </div>
+          <div class="step-check">✅</div>
+        </div>
+        <div class="step-body">
+
+          <!-- タブ -->
+          <div class="d-flex gap-1 mb-3">
+            <button id="tab-btn-colab" class="btn btn-sm btn-primary" onclick="switchTrainTab('colab')">
+              ☁️ Google Colab（推奨）
+            </button>
+            <button id="tab-btn-local" class="btn btn-sm btn-outline-secondary" onclick="switchTrainTab('local')">
+              💻 自分の環境で学習
+            </button>
+          </div>
+
+          <!-- Colab タブ -->
+          <div id="tab-colab">
+            <div class="small text-muted mb-3">
+              Googleの無料クラウドサービスでAIを学習させます。<br>
+              自分のPCにGPUがなくても大丈夫です。<br>
+              <strong>①と②をダウンロードして、Colabにアップロードするだけ。</strong>
+            </div>
+            <div class="d-grid gap-2 mb-3">
+              <a href="/api/admin/training/notebook.ipynb" id="dl-notebook"
+                 class="btn btn-success" onclick="return requireAuth(this)">
+                📓 ① 学習手順書をダウンロード
+              </a>
+              <a href="/api/admin/training/dataset.zip" id="dl-dataset"
+                 class="btn btn-outline-primary" onclick="return requireAuthDataset(this)">
+                📦 ② 写真データをダウンロード
+              </a>
+            </div>
+            <div class="border rounded p-2 bg-light" style="font-size:12px">
+              <div class="fw-bold mb-1">Colabでの手順</div>
+              <ol class="mb-0 ps-3">
+                <li>① の手順書を <a href="https://colab.research.google.com/" target="_blank">Colab</a> で開く</li>
+                <li>ランタイム → <strong>T4 GPU</strong> に変更（無料）</li>
+                <li>「すべてのセルを実行」をクリック</li>
+                <li>途中で ② の写真データをアップロード</li>
+                <li>完了すると <code>tray_model_best.pt</code>・<code>product_model_best.pt</code> が自動ダウンロード</li>
+                <li>このページ下部「登録済みバーコード一覧」でモデルを割り当てる</li>
+              </ol>
+            </div>
+
+            <div class="border border-info rounded p-2 mt-2 bg-info bg-opacity-10" style="font-size:11px">
+              <div class="fw-bold mb-1">📐 立体トレイ向け Augmentation（Colab ノートブック内で設定）</div>
+              <div class="mb-1">手順書の学習セルで以下のパラメータを追加すると、カメラ角度の変化に強くなります：</div>
+              <div class="p-1 rounded mb-1" style="background:#1e1e1e;color:#d4d4d4;font-family:monospace;font-size:10px;white-space:pre">
+perspective=0.05   # 視点のゆがみ補正
+shear=10           # せん断変形（カメラ傾き）
+degrees=5          # 微小回転
+scale=0.15         # スケール変化（充填高さによる見かけ差）</div>
+              <div class="text-muted">製品モデルの学習時に追加します。トレイモデルも同様に設定するとトレイ検出が安定します。</div>
+            </div>
+          </div>
+
+          <!-- ローカル タブ -->
+          <div id="tab-local" style="display:none">
+            <div class="alert alert-warning py-2 mb-3" style="font-size:12px">
+              <strong>💻 自分のPCで学習します。</strong><br>
+              NVIDIAのGPUがあると速く学習できます（CPUのみでも動きますが数時間かかります）。
+            </div>
+
+            <div class="border rounded p-2 bg-light mb-3" style="font-size:12px">
+              <div class="fw-bold mb-1">必要なもの</div>
+              <ul class="mb-0 ps-3">
+                <li>Python 3.10 以上</li>
+                <li>（推奨）NVIDIA GPU + CUDA</li>
+              </ul>
+            </div>
+
+            <div class="fw-bold small mb-2">手順</div>
+
+            <div class="mb-2" style="font-size:12px">
+              <span class="badge bg-secondary me-1">1</span>
+              ライブラリをインストール（1回だけ）
+              <div class="mt-1 p-2 rounded" style="background:#1e1e1e;color:#d4d4d4;font-family:monospace;font-size:11px">
+                pip install ultralytics albumentations pyyaml opencv-python
+              </div>
+            </div>
+
+            <div class="mb-2" style="font-size:12px">
+              <span class="badge bg-secondary me-1">2</span>
+              以下の2つを同じフォルダにダウンロード
+              <div class="d-grid gap-1 mt-1">
+                <a href="/api/admin/training/train.py" id="dl-trainpy"
+                   class="btn btn-sm btn-success" onclick="return requireAuth(this)">
+                  🐍 train.py をダウンロード
+                </a>
+                <a href="/api/admin/training/dataset.zip" id="dl-dataset-local"
+                   class="btn btn-sm btn-outline-primary" onclick="return requireAuthDatasetLocal(this)">
+                  📦 写真データ（dataset.zip）をダウンロード
+                </a>
+              </div>
+            </div>
+
+            <div class="mb-3" style="font-size:12px">
+              <span class="badge bg-secondary me-1">3</span>
+              コマンドで実行
+              <div class="mt-1 p-2 rounded" style="background:#1e1e1e;color:#d4d4d4;font-family:monospace;font-size:11px">
+                python train.py
+              </div>
+              <div class="text-muted mt-1" style="font-size:11px">
+                GPUがない場合: <code style="background:#eee;padding:1px 4px">python train.py --device cpu</code>
+              </div>
+            </div>
+
+            <div class="border rounded p-2 bg-light" style="font-size:12px">
+              <div class="fw-bold mb-1">完了すると…</div>
+              <code>output/tray_model_best.pt</code><br>
+              <code>output/product_model_best.pt</code><br>
+              <div class="text-muted mt-1">の2ファイルが生成されます。このままStep 6で登録できます。</div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- STEP 6: 検品に反映する -->
+      <div class="step-card" id="step6-card">
+        <div class="step-header" onclick="openStep6()">
+          <div class="step-circle">6</div>
+          <div>
+            <div class="step-title">検品に反映する</div>
+            <div class="step-subtitle">学習済みモデルをアップロードしてバーコードに設定します</div>
+          </div>
+          <div class="step-check">✅</div>
+        </div>
+        <div class="step-body">
+
+          <!-- A: モデルアップロード -->
+          <div class="fw-bold small mb-1">① 学習済みモデルをアップロード</div>
+          <div class="small text-muted mb-3">
+            Colab または自分の環境で生成した 2 つの <code>.pt</code> ファイルを選択してください。
+          </div>
+
+          <div class="border rounded p-2 mb-2">
+            <div class="d-flex align-items-center gap-2 mb-1">
+              <span>🔲</span>
+              <span class="small fw-bold">tray_model_best.pt</span>
+              <span class="text-muted" style="font-size:11px">全トレイ共通</span>
+            </div>
+            <input type="file" id="s6-tray-file" accept=".pt" class="form-control form-control-sm"
+                   onchange="s6UploadModel(this.files[0], 'tray')">
+            <div id="s6-tray-status" class="small mt-1 text-muted"></div>
+          </div>
+
+          <div class="border rounded p-2 mb-3">
+            <div class="d-flex align-items-center gap-2 mb-1">
+              <span>📦</span>
+              <span class="small fw-bold">product_model_best.pt</span>
+              <span class="text-muted" style="font-size:11px">このトレイ専用</span>
+            </div>
+            <input type="file" id="s6-product-file" accept=".pt" class="form-control form-control-sm"
+                   onchange="s6UploadModel(this.files[0], 'product')">
+            <div id="s6-product-status" class="small mt-1 text-muted"></div>
+          </div>
+
+          <!-- B: バーコード設定 -->
+          <div id="s6-barcode-section" class="d-none">
+            <div class="fw-bold small mb-2">② バーコードに紐付ける</div>
+            <div class="mb-2">
+              <label class="form-label small mb-1">バーコード番号 <span class="text-danger">*</span></label>
+              <input id="s6-barcode-value" type="text" class="form-control form-control-sm"
+                     placeholder="例: TRAY_001（スキャナが読み取るコード）">
+              <div class="form-text" style="font-size:11px">実際のバーコードスキャナで読み取る値と同じにしてください</div>
+            </div>
+            <div class="mb-2">
+              <label class="form-label small mb-1">名前（省略時はバーコード番号と同じ）</label>
+              <input id="s6-barcode-name" type="text" class="form-control form-control-sm"
+                     placeholder="例: 1号トレイ">
+            </div>
+            <div id="s6-barcode-status" class="small mb-2"></div>
+            <button class="btn btn-primary btn-sm w-100" id="s6-register-btn"
+                    onclick="s6RegisterBarcode()">
+              登録して紐付ける
+            </button>
+          </div>
+
+          <!-- C: レイアウト生成 -->
+          <div id="s6-layout-section" class="mt-3 d-none">
+            <div class="fw-bold small mb-1">③ 基準レイアウトを生成する</div>
+
+            <!-- 方法A1: 画像直接（トレイモデル不要・固定カメラ推奨） -->
+            <div class="small text-muted mb-1">
+              <strong>方法A1（推奨）</strong>: アノテーション座標をそのまま使用
+              <br><span class="text-success">✅ トレイモデル不要・固定カメラ向け</span>
+            </div>
+            <button class="btn btn-primary btn-sm w-100 mb-2" id="s6-direct-btn"
+                    onclick="s6GenerateLayoutDirect()">
+              📐 アノテーションから直接生成（推奨）
+            </button>
+
+            <!-- 方法A2: アノテーション＋トレイ補正 -->
+            <div class="small text-muted mb-1">
+              <strong>方法A2</strong>: トレイ隅マーカーで補正した座標を使用
+              <br><span class="text-warning">⚠️ トレイモデルの精度に依存</span>
+            </div>
+            <button class="btn btn-outline-primary btn-sm w-100 mb-3" id="s6-ann-btn"
+                    onclick="s6GenerateLayoutFromAnnotations()">
+              📋 アノテーションからレイアウト生成（トレイ補正あり）
+            </button>
+
+            <!-- 方法B: 基準写真から生成 -->
+            <div class="small text-muted mb-1">
+              <strong>方法B</strong>: 基準写真をアップロードして生成
+            </div>
+            <input type="file" id="s6-ref-image" class="form-control form-control-sm mb-2"
+                   accept="image/*" onchange="s6PreviewRefImage(this)">
+            <div class="d-flex align-items-center gap-2 mb-2">
+              <span class="small text-muted" style="white-space:nowrap">検出閾値:</span>
+              <input id="s6-conf-slider" type="range" min="0.1" max="0.9" step="0.05" value="0.3"
+                     class="form-range flex-fill"
+                     oninput="document.getElementById('s6-conf-val').textContent=parseFloat(this.value).toFixed(2)">
+              <span id="s6-conf-val" class="badge bg-secondary">0.30</span>
+            </div>
+            <button class="btn btn-success btn-sm w-100" id="s6-gen-btn"
+                    onclick="s6GenerateLayout()">
+              🔍 レイアウトを自動生成（基準写真）
+            </button>
+            <div id="s6-layout-result" class="small mt-2"></div>
+            <div id="s6-preview-wrap" class="mt-2 d-none"
+                 style="position:relative;background:#111;border-radius:6px;overflow:hidden">
+              <img id="s6-preview-img" style="max-width:100%;display:block">
+              <canvas id="s6-preview-canvas"
+                      style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none"></canvas>
+            </div>
+          </div>
+
+          <!-- Done -->
+          <div id="s6-done-banner" class="done-banner mt-3 d-none">
+            <div class="fw-bold mb-1">🎉 検品準備完了！</div>
+            <div class="small opacity-75">撮影アプリでバーコードをスキャンするとAIが自動で検品します。</div>
+          </div>
+
+        </div>
+      </div>
+
+    </div><!-- /左カラム -->
+
+    <!-- ─── 右カラム: 写真管理 ─── -->
+    <div class="col-lg-7">
+      <div class="annotate-card">
+
+        <!-- フォルダ情報 + 全体進捗 -->
+        <div class="card mb-3">
+          <div class="card-body py-2 px-3">
+            <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
+              <div>
+                <span class="fw-bold" id="gallery-title" style="font-size:15px">写真一覧</span>
+                <span class="text-muted small ms-2" id="gallery-sub"></span>
+              </div>
+              <div class="d-flex gap-2 align-items-center">
+                <span class="badge bg-primary" id="badge-total">0枚</span>
+                <span class="badge bg-success" id="badge-labeled">枠描き済 0枚</span>
+                <button class="btn btn-sm btn-outline-secondary" onclick="selectFolder(null)">全て表示</button>
+                <button class="btn btn-sm btn-outline-danger" onclick="clearAll()">削除</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 写真グリッド -->
+        <div class="card">
+          <div class="card-body" style="min-height:300px; max-height:70vh; overflow-y:auto;">
+            <div id="img-gallery" class="d-flex flex-wrap gap-2"></div>
+            <div id="no-images" class="text-center text-muted py-5">
+              <div style="font-size:3rem">📷</div>
+              <div class="fw-bold mt-2">まだ写真がありません</div>
+              <div class="small mt-1">左の「Step 1」でフォルダを選択してください</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- フォルダ別タブ（下部） -->
+        <div class="card mt-3">
+          <div class="card-header py-2 d-flex align-items-center justify-content-between">
+            <span class="fw-bold small">📁 トレイ別フォルダ</span>
+            <span class="text-muted" style="font-size:11px">クリックで切り替え</span>
+          </div>
+          <div class="card-body p-2">
+            <div id="folder-tabs" class="d-flex flex-wrap gap-2">
+              <span class="text-muted small py-1">まだデータがありません</span>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ═══ 登録済みバーコード一覧 ═══ -->
+  <div class="mt-5 pt-4 border-top" id="registrations-section">
+    <div class="d-flex align-items-center justify-content-between mb-3">
+      <h5 class="mb-0">📋 登録済みバーコード一覧</h5>
+      <button class="btn btn-sm btn-outline-secondary" onclick="loadRegistrations()">↻ 更新</button>
+    </div>
+
+    <!-- 登録済みモデル -->
+    <div class="mb-3">
+      <div class="small text-muted fw-bold mb-2">登録済みモデル</div>
+      <div id="reg-model-list" class="d-flex flex-wrap gap-2">
+        <span class="text-muted small">読み込み中...</span>
+      </div>
+    </div>
+
+    <!-- バーコードテーブル -->
+    <div class="table-responsive">
+      <table class="table table-hover align-middle">
+        <thead class="table-light">
+          <tr>
+            <th>バーコード</th>
+            <th>🔲 トレイモデル<br><small class="fw-normal text-muted">全トレイ共通</small></th>
+            <th>📦 製品モデル<br><small class="fw-normal text-muted">このトレイ専用</small></th>
+            <th>レイアウト</th>
+            <th>📷 参考画像<br><small class="fw-normal text-muted">撮影前確認に表示</small></th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="reg-tbody">
+          <tr><td colspan="6" class="text-center text-muted py-3">読み込み中...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+</div>
+
+<script src="/admin/_common.js?v=3"></script>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+document.getElementById('nav-placeholder').innerHTML = renderNav('training');
+
+let currentFolder = null;
+let allFolders = [];
+let allClasses = [];
+let totalImages = 0, labeledImages = 0;
+
+// ─── ドロップゾーン（Step3）
+const dz = document.getElementById('drop-zone');
+dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('dragover'); });
+dz.addEventListener('dragleave', () => dz.classList.remove('dragover'));
+dz.addEventListener('drop', e => {
+  e.preventDefault(); dz.classList.remove('dragover');
+  const files = [...e.dataTransfer.files].filter(f => f.type.startsWith('image/'));
+  if (files.length) uploadImageFiles(files);
+});
+
+// ─── 認証付きダウンロード
+function _requireFolder(action) {
+  if (currentFolder === null) {
+    alert('先に Step 1 でフォルダを選択してください。');
+    return false;
+  }
+  return true;
+}
+function requireAuth(el) {
+  if (!_requireFolder()) return false;
+  const token = localStorage.getItem('token');
+  if (!token) { window.location.href = '/admin/login'; return false; }
+  const base = el.href.split('?')[0];
+  const q = `folder=${encodeURIComponent(currentFolder)}&token=${token}`;
+  el.href = base + '?' + q;
+  setTimeout(() => { el.href = base; }, 1000);
+  return true;
+}
+function requireAuthDataset(el) {
+  if (!_requireFolder()) return false;
+  const token = localStorage.getItem('token');
+  if (!token) { window.location.href = '/admin/login'; return false; }
+  const q = `folder=${encodeURIComponent(currentFolder)}&token=${token}`;
+  el.href = '/api/admin/training/dataset.zip?' + q;
+  setTimeout(() => { el.href = '/api/admin/training/dataset.zip'; }, 1000);
+  return true;
+}
+function requireAuthDatasetLocal(el) {
+  return requireAuthDataset(el);
+}
+
+// ─── 学習タブ切り替え
+function switchTrainTab(tab) {
+  document.getElementById('tab-colab').style.display = tab === 'colab' ? '' : 'none';
+  document.getElementById('tab-local').style.display = tab === 'local' ? '' : 'none';
+  document.getElementById('tab-btn-colab').className =
+    tab === 'colab' ? 'btn btn-sm btn-primary' : 'btn btn-sm btn-outline-secondary';
+  document.getElementById('tab-btn-local').className =
+    tab === 'local' ? 'btn btn-sm btn-primary' : 'btn btn-sm btn-outline-secondary';
+}
+
+// ─── ステップ開閉
+function toggleStep(n) {
+  [1,2,3,4,5,6].forEach(i => {
+    const card = document.getElementById(`step${i}-card`);
+    if (i === n) card.classList.toggle('active');
+  });
+}
+
+function setActiveStep(n) {
+  [1,2,3,4,5,6].forEach(i => {
+    const card = document.getElementById(`step${i}-card`);
+    card.classList.remove('active');
+    if (i === n) card.classList.add('active');
+  });
+}
+
+// ─── フォルダピッカー（Step1）
+async function handleFolderSelect(fileList) {
+  const imageFiles = [...fileList].filter(f => f.type.startsWith('image/'));
+  if (!imageFiles.length) {
+    alert('フォルダ内に画像ファイルが見つかりませんでした（JPG・PNG等）。');
+    document.getElementById('folder-picker').value = '';
+    return;
+  }
+
+  // フォルダ名を1ファイル目のパスから取得
+  const folderName = imageFiles[0].webkitRelativePath.split('/')[0];
+
+  // Step1 UI 更新
+  document.getElementById('folder-picker-zone').style.display = 'none';
+  document.getElementById('step1-upload-progress').classList.remove('d-none');
+
+  // アップロード
+  let done = 0;
+  for (const f of imageFiles) {
+    const fd = new FormData();
+    fd.append('image', f);
+    fd.append('barcode_name', folderName);
+    try { await api('POST', '/admin/training/images', fd, true); } catch(e) {}
+    done++;
+    const pct = Math.round(done / imageFiles.length * 100);
+    document.getElementById('step1-upload-bar').style.width = pct + '%';
+    document.getElementById('step1-upload-pct').textContent = pct + '%';
+    document.getElementById('step1-upload-status').textContent =
+      `${done} / ${imageFiles.length} 枚 アップロード中...`;
+  }
+
+  document.getElementById('step1-upload-progress').classList.add('d-none');
+
+  // 選択済み表示
+  document.getElementById('step1-selected').classList.remove('d-none');
+  document.getElementById('step1-selected-name').textContent = folderName;
+  document.getElementById('step1-selected-count').textContent = `${done}枚アップロード済`;
+
+  // 状態反映
+  _applyFolder(folderName);
+  await load();
+  setActiveStep(2);
+}
+
+// ─── 既存フォルダから選択
+function selectFolder(name) {
+  if (name !== null) {
+    document.getElementById('folder-picker-zone').style.display = 'none';
+    document.getElementById('step1-selected').classList.remove('d-none');
+    document.getElementById('step1-selected-name').textContent = name;
+    document.getElementById('step1-selected-count').textContent = '';
+    setActiveStep(2);
+  }
+  _applyFolder(name);
+  loadClasses();
+  loadImages();
+  loadStats();
+}
+
+function _applyFolder(name) {
+  currentFolder = name;
+  if (name !== null) localStorage.setItem('training_last_folder', name);
+  else localStorage.removeItem('training_last_folder');
+  document.getElementById('gallery-title').textContent =
+    name !== null ? `📁 ${name}` : '写真一覧（全フォルダ）';
+  const _base = name !== null ? `/admin/annotate?folder=${encodeURIComponent(name)}` : '/admin/annotate';
+  const _sep  = name !== null ? '&' : '?';
+  document.getElementById('annotate-btn-main').href    = _base + _sep + 'mode=per-image';
+  document.getElementById('annotate-btn-tray').href    = _base + _sep + 'mode=tray';
+  document.getElementById('annotate-btn-product').href = _base + _sep + 'mode=product';
+  document.getElementById('step3-folder-badge').textContent =
+    name ? `保存先: ${name}` : '';
+  if (name !== null) {
+    document.getElementById('step1-card').classList.add('done');
+  }
+  // フォルダタブのアクティブ切り替え
+  document.querySelectorAll('[data-folder]').forEach(el => {
+    el.classList.toggle('active', el.dataset.folder === String(name));
+  });
+}
+
+function clearFolder() {
+  currentFolder = null;
+  localStorage.removeItem('training_last_folder');
+  document.getElementById('step1-selected').classList.add('d-none');
+  document.getElementById('folder-picker-zone').style.display = '';
+  document.getElementById('folder-picker').value = '';
+  document.getElementById('step1-card').classList.remove('done');
+  document.getElementById('gallery-title').textContent = '写真一覧（全フォルダ）';
+  document.getElementById('annotate-btn-main').href    = '/admin/annotate?mode=per-image';
+  document.getElementById('annotate-btn-tray').href    = '/admin/annotate?mode=tray';
+  document.getElementById('annotate-btn-product').href = '/admin/annotate?mode=product';
+  document.getElementById('step3-folder-badge').textContent = '';
+  setActiveStep(1);
+  loadImages(); loadStats();
+}
+
+// ─── 初期ロード
+async function load() {
+  const folders = await api('GET', '/admin/training/folders');
+  allFolders = folders || [];
+  renderFolderList(allFolders);
+  renderFolderTabs(allFolders);
+
+  // ページ初期表示時: 最後に選択したフォルダを自動復元
+  if (currentFolder === null) {
+    const saved = localStorage.getItem('training_last_folder');
+    if (saved && allFolders.some(f => f.barcode_name === saved)) {
+      _applyFolder(saved);
+      document.getElementById('folder-picker-zone').style.display = 'none';
+      document.getElementById('step1-selected').classList.remove('d-none');
+      document.getElementById('step1-selected-name').textContent = saved;
+      document.getElementById('step1-selected-count').textContent = '';
+    }
+  }
+
+  await loadClasses();
+  loadImages();
+  loadStats();
+  loadRegistrations();
+}
+
+async function loadClasses() {
+  if (currentFolder !== null) {
+    const classes = await api('GET', `/admin/training/classes?folder=${encodeURIComponent(currentFolder)}`);
+    allClasses = classes || [];
+  } else {
+    allClasses = [];
+    // 旧グローバルクラスが残っていれば通知
+    try {
+      const globalCls = await api('GET', '/admin/training/classes');
+      const cleanupSec = document.getElementById('cleanup-section');
+      if (cleanupSec) cleanupSec.classList.toggle('d-none', !globalCls || globalCls.length === 0);
+    } catch(e) {}
+  }
+  renderClasses(allClasses);
+  updateStep2State(allClasses);
+  // Step 2 フォルダ表示切り替え
+  const noFolder = document.getElementById('step2-no-folder');
+  const clsSection = document.getElementById('step2-classes');
+  const badge = document.getElementById('step2-folder-badge');
+  if (currentFolder !== null) {
+    noFolder.style.display = 'none';
+    clsSection.style.display = '';
+    badge.textContent = currentFolder;
+  } else {
+    noFolder.style.display = '';
+    clsSection.style.display = 'none';
+  }
+}
+
+async function cleanupGlobalClasses() {
+  if (!confirm('旧バージョンの共有クラスを削除します。この操作は元に戻せません。続けますか？')) return;
+  try {
+    await api('DELETE', '/admin/training/classes/cleanup-global');
+    document.getElementById('cleanup-section').classList.add('d-none');
+    showToast && showToast('旧クラスを削除しました', 'ok');
+    alert('旧クラスを削除しました。各フォルダでクラスを登録してください。');
+  } catch(e) { alert('削除に失敗しました: ' + e.message); }
+}
+
+async function loadImages() {
+  const param = currentFolder !== null ? `?folder=${encodeURIComponent(currentFolder)}` : '';
+  const images = await api('GET', '/admin/training/images' + param) || [];
+  renderImages(images);
+  totalImages = images.length;
+  labeledImages = images.filter(i => i.has_label).length;
+  updateStep3State(totalImages);
+  updateStep4State(totalImages, labeledImages);
+}
+
+async function loadStats() {
+  const param = currentFolder !== null ? `?folder=${encodeURIComponent(currentFolder)}` : '';
+  const stats = await api('GET', '/admin/training/stats' + param);
+  if (!stats) return;
+  document.getElementById('badge-total').textContent = `${stats.total_images} 枚`;
+  document.getElementById('badge-labeled').textContent = `枠描き済 ${stats.labeled_images} 枚`;
+}
+
+// ─── ステップ状態更新
+function updateStep2State(classes) {
+  const hasTray = classes.some(c => c.name === 'tray');
+  const hasProduct = classes.some(c => !/^tray/i.test(c.name));
+  document.getElementById('step2-card').classList.toggle('done', hasTray && hasProduct);
+}
+
+function updateStep3State(total) {
+  const card = document.getElementById('step3-card');
+  if (total > 0) card.classList.add('done');
+  else card.classList.remove('done');
+}
+
+function updateStep4State(total, labeled) {
+  const card = document.getElementById('step4-card');
+  document.getElementById('step4-progress-text').textContent = `${labeled} / ${total} 枚`;
+  const pct = total > 0 ? Math.round(labeled / total * 100) : 0;
+  document.getElementById('step4-bar').style.width = pct + '%';
+  if (total > 0 && labeled === total) card.classList.add('done');
+  else card.classList.remove('done');
+}
+
+// ─── フォルダ一覧（Step1内：以前登録したフォルダ）
+function renderFolderList(folders) {
+  const section = document.getElementById('existing-folders-section');
+  const el = document.getElementById('folder-list');
+  if (!folders.length) {
+    section.classList.add('d-none');
+    return;
+  }
+  section.classList.remove('d-none');
+  el.innerHTML = folders.map(f => `
+    <button class="btn btn-sm btn-outline-secondary ${currentFolder === f.barcode_name ? 'active' : ''}"
+            data-folder="${f.barcode_name}"
+            onclick="selectFolder('${f.barcode_name}')">
+      📁 ${f.barcode_name || '（未分類）'}
+      <span class="ms-1 text-muted" style="font-size:10px">${f.total}枚</span>
+    </button>`).join('');
+}
+
+// ─── フォルダタブ（右カラム下部）
+function renderFolderTabs(folders) {
+  const el = document.getElementById('folder-tabs');
+  if (!folders.length) {
+    el.innerHTML = '<span class="text-muted small py-1">まだデータがありません</span>';
+    return;
+  }
+  const all = `<button class="btn btn-sm ${currentFolder===null?'btn-primary':'btn-outline-secondary'}"
+    onclick="selectFolder(null)">全て</button>`;
+  const tabs = folders.map(f => {
+    const pct = f.total ? Math.round(f.labeled/f.total*100) : 0;
+    const active = currentFolder === f.barcode_name;
+    return `
+    <button class="btn btn-sm ${active?'btn-primary':'btn-outline-secondary'} position-relative"
+            data-folder="${f.barcode_name}" onclick="selectFolder('${f.barcode_name}')">
+      ${f.barcode_name || '未分類'}
+      <span class="badge ${pct===100?'bg-success':'bg-warning text-dark'} ms-1" style="font-size:9px">
+        ${pct}%
+      </span>
+    </button>`;
+  }).join('');
+  el.innerHTML = all + tabs;
+}
+
+// ─── クラス表示
+const COLORS = ['#4ECDC4','#45B7D1','#96CEB4','#F7B731','#C7A0D4','#26de81','#FC5C65','#FF6B6B'];
+function clrOf(idx) { return COLORS[idx % COLORS.length]; }
+
+const TRAY_CLASSES = ['tray', 'tray_lu', 'tray_ru', 'tray_ld', 'tray_rd'];
+
+function renderTrayClassRows(classes) {
+  const el = document.getElementById('tray-class-rows');
+  if (!el) return;
+  el.innerHTML = TRAY_CLASSES.map(name => {
+    const cls = classes.find(c => c.name === name);
+    const ok = !!cls;
+    const required = name === 'tray';
+    return `
+      <div class="d-flex align-items-center gap-2 py-1 border-bottom" style="font-size:13px">
+        <span>${ok ? '✅' : '⬜'}</span>
+        <span class="fw-bold ${ok ? 'text-success' : 'text-muted'}">${name}</span>
+        ${required && !ok ? '<span class="badge bg-danger" style="font-size:10px">必須</span>' : ''}
+        ${!required && !ok ? '<span class="text-muted" style="font-size:11px">視差補正に使用</span>' : ''}
+        <div class="ms-auto">
+          ${!ok
+            ? `<button class="btn btn-sm ${required ? 'btn-danger' : 'btn-outline-secondary'}"
+                       style="font-size:11px;padding:1px 8px"
+                       onclick="addClassDirect('${name}')">＋ 追加</button>`
+            : `<button class="btn btn-link btn-sm text-danger p-0" style="font-size:11px"
+                       onclick="deleteClass(${cls.id},'${cls.name}')">削除</button>`}
+        </div>
+      </div>`;
+  }).join('');
+
+  const hasMissingCorner = TRAY_CLASSES.slice(1).some(n => !classes.some(c => c.name === n));
+  const addBtn = document.getElementById('tray-corners-add');
+  if (addBtn) addBtn.classList.toggle('d-none', !hasMissingCorner);
+}
+
+function renderClasses(classes) {
+  renderTrayClassRows(classes);
+
+  // 製品クラスリスト（tray* 以外）
+  const products = classes.filter(c => !/^tray/i.test(c.name));
+  const el = document.getElementById('product-class-list');
+  if (!products.length) {
+    el.innerHTML = '<div class="text-muted small py-1 border-bottom mb-1">まだ登録されていません</div>';
+    return;
+  }
+  el.innerHTML = products.map(c => `
+    <div class="d-flex align-items-center justify-content-between py-1 border-bottom">
+      <span class="fw-bold" style="color:${clrOf(c.class_index)};font-size:13px">
+        ● ${c.name}
+      </span>
+      <button class="btn btn-link btn-sm text-danger p-0" style="font-size:12px"
+              onclick="deleteClass(${c.id},'${c.name}')">削除</button>
+    </div>`).join('');
+}
+
+// ─── クラス追加
+async function addProductClassFromInput() {
+  if (!currentFolder) { alert('フォルダを選択してください'); return; }
+  const input = document.getElementById('new-class');
+  const name = input.value.trim().replace(/\s+/g, '_');
+  if (!name) return;
+  input.value = '';
+  await addClassDirect(name);
+}
+
+async function addProductClass(name) {
+  if (!currentFolder) { alert('フォルダを選択してください'); return; }
+  await addClassDirect(name);
+}
+
+async function addClassDirect(name) {
+  if (!currentFolder) { alert('フォルダを選択してください'); return; }
+  name = name.trim().replace(/\s+/g, '_');
+  if (!name || allClasses.some(c => c.name === name)) return;
+  try {
+    const fd = new FormData();
+    fd.append('name', name);
+    fd.append('barcode_name', currentFolder);
+    await api('POST', '/admin/training/classes', fd, true);
+    await loadClasses();
+  } catch(e) { alert(e.message); }
+}
+
+document.getElementById('new-class').addEventListener('keydown', e => {
+  if (e.key === 'Enter') addProductClassFromInput();
+});
+
+async function deleteClass(id, name) {
+  if (!confirm(`「${name}」を削除しますか？`)) return;
+  await api('DELETE', `/admin/training/classes/${id}`);
+  await loadClasses();
+}
+
+async function addTrayCorners() {
+  if (!currentFolder) { alert('フォルダを選択してください'); return; }
+  const missing = TRAY_CLASSES.slice(1).filter(n => !allClasses.some(c => c.name === n));
+  for (const name of missing) await addClassDirect(name);
+}
+
+// ─── 写真アップロード
+function uploadImages() {
+  const files = [...document.getElementById('upload-img').files];
+  if (files.length) uploadImageFiles(files);
+  document.getElementById('upload-img').value = '';
+}
+
+async function uploadImageFiles(files) {
+  const folderName = currentFolder || '';
+  document.getElementById('upload-progress').classList.remove('d-none');
+  document.getElementById('upload-result').innerHTML = '';
+  let done = 0;
+  for (const f of files) {
+    const fd = new FormData();
+    fd.append('image', f);
+    if (folderName) fd.append('barcode_name', folderName);
+    try { await api('POST', '/admin/training/images', fd, true); } catch(e) {}
+    done++;
+    const pct = Math.round(done / files.length * 100);
+    document.getElementById('upload-bar').style.width = pct + '%';
+    document.getElementById('upload-status').textContent = `${done} / ${files.length} 枚 アップロード中...`;
+  }
+  document.getElementById('upload-progress').classList.add('d-none');
+  document.getElementById('upload-result').innerHTML =
+    `<div class="alert alert-success py-2 small">✅ ${done} 枚をアップロードしました</div>`;
+
+  // フォルダが未選択なら最初のフォルダを選択
+  if (!currentFolder && folderName) selectFolder(folderName);
+  await load();
+
+  // Step4へ誘導
+  if (done > 0) setActiveStep(4);
+}
+
+// ─── 写真一覧
+function renderImages(images) {
+  const gallery = document.getElementById('img-gallery');
+  const noImg = document.getElementById('no-images');
+  if (!images.length) { gallery.innerHTML = ''; noImg.style.display = ''; return; }
+  noImg.style.display = 'none';
+  const token = localStorage.getItem('token') || '';
+  gallery.innerHTML = images.map(img => `
+    <div class="text-center" style="width:110px">
+      <div class="position-relative">
+        <img src="/api/admin/training/images/${img.id}/file?token=${token}"
+             alt="${img.filename}"
+             onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%22110%22 height=%2272%22><rect fill=%22%23dee2e6%22 width=%22110%22 height=%2272%22/><text x=%2255%22 y=%2241%22 text-anchor=%22middle%22 fill=%22%236c757d%22 font-size=%2212%22>📷</text></svg>'"
+             class="img-thumb border">
+        <span class="position-absolute top-0 end-0 badge ${img.has_label ? 'bg-success' : 'bg-warning text-dark'}"
+              style="font-size:9px;margin:2px">
+          ${img.has_label ? '済✓' : '未'}
+        </span>
+      </div>
+      <div class="small text-truncate mt-1" style="max-width:110px;font-size:10px"
+           title="${img.filename}">${img.filename}</div>
+      <div class="d-flex gap-1 mt-1">
+        <button class="btn btn-outline-warning flex-fill" style="font-size:10px;padding:1px 4px"
+                onclick="clearLabel(${img.id})">枠消去</button>
+        <button class="btn btn-outline-danger flex-fill" style="font-size:10px;padding:1px 4px"
+                onclick="deleteImage(${img.id},'${img.filename}')">削除</button>
+      </div>
+    </div>`).join('');
+}
+
+// ─── 枠（アノテーション）消去
+async function clearLabel(id) {
+  if (!confirm('この画像の枠（アノテーション）を消去しますか？')) return;
+  await api('DELETE', `/admin/training/images/${id}/label`);
+  loadImages(); loadStats();
+}
+
+// ─── 写真削除
+async function deleteImage(id, name) {
+  if (!confirm(`「${name}」を削除しますか？`)) return;
+  await api('DELETE', `/admin/training/images/${id}`);
+  loadImages(); loadStats();
+}
+
+async function clearAll() {
+  const label = currentFolder !== null ? `「${currentFolder}」の全写真` : '全写真';
+  if (!confirm(`${label}を削除しますか？`)) return;
+  const param = currentFolder !== null ? `?folder=${encodeURIComponent(currentFolder)}` : '';
+  const images = await api('GET', '/admin/training/images' + param) || [];
+  for (const img of images) await api('DELETE', `/admin/training/images/${img.id}`);
+  load();
+}
+
+load();
+
+// ─── 登録済みバーコード一覧 ─────────────────────────────────
+let regBarcodes = [], regModels = [];
+
+async function loadRegistrations() {
+  [regBarcodes, regModels] = await Promise.all([
+    api('GET', '/admin/barcodes/?limit=1000'),
+    api('GET', '/admin/models/'),
+  ]);
+  regBarcodes = regBarcodes || [];
+  regModels   = regModels   || [];
+  renderRegModelList();
+  renderRegTable();
+}
+
+function renderRegModelList() {
+  const el = document.getElementById('reg-model-list');
+  if (!regModels.length) {
+    el.innerHTML = '<span class="text-muted small">まだ登録されていません</span>';
+    return;
+  }
+  el.innerHTML = regModels.map(m => `
+    <span class="badge d-inline-flex align-items-center gap-1 px-2 py-1"
+          style="background:${m.status === 'active' ? '#198754' : '#6c757d'};font-size:12px;font-weight:normal">
+      ${m.name}
+      <button onclick="regRemoveModel(${m.id},'${m.name}')"
+              style="background:none;border:none;color:#fff;font-size:15px;line-height:1;padding:0;cursor:pointer">×</button>
+    </span>`).join('');
+}
+
+function renderRegTable() {
+  const el = document.getElementById('reg-tbody');
+  if (!regBarcodes.length) {
+    el.innerHTML = '<tr><td colspan="6" class="text-center text-muted py-3">まだ登録されていません</td></tr>';
+    return;
+  }
+  const noOpt    = '<option value="">-- 未設定 --</option>';
+  const modelOpts = regModels.map(m =>
+    `<option value="${m.id}">[${m.status === 'active' ? '✓' : '×'}] ${m.name}</option>`
+  ).join('');
+
+  el.innerHTML = regBarcodes.map(r => `
+    <tr id="reg-row-${r.id}">
+      <td>
+        <code class="fw-bold">${r.barcode_value}</code>
+        ${r.name !== r.barcode_value ? `<div class="small text-muted">${r.name}</div>` : ''}
+      </td>
+      <td>
+        <select class="form-select form-select-sm" style="max-width:180px;font-size:12px"
+                onchange="regSetModel(${r.id},'tray',this.value)">
+          ${noOpt}${modelOpts}
+        </select>
+      </td>
+      <td>
+        <select class="form-select form-select-sm" style="max-width:180px;font-size:12px"
+                onchange="regSetModel(${r.id},'product',this.value)">
+          ${noOpt}${modelOpts}
+        </select>
+      </td>
+      <td>
+        ${r.layout_path
+          ? `<span class="badge bg-success">✅ 設定済み</span>
+             <button class="btn btn-outline-danger btn-sm ms-1" style="font-size:11px;padding:1px 5px"
+                     onclick="regDeleteLayout(${r.id})">削除</button>`
+          : `<span class="badge bg-warning text-dark">未設定</span>`}
+      </td>
+      <td>
+        <input type="file" id="ref-input-${r.id}" accept="image/*" style="display:none"
+               onchange="regSetRefImage(${r.id}, this.files[0])">
+        ${r.reference_image_path
+          ? `<span class="badge bg-success me-1">✅ 設定済み</span>
+             <button class="btn btn-outline-secondary btn-sm" style="font-size:11px;padding:1px 5px"
+                     onclick="document.getElementById('ref-input-${r.id}').click()">変更</button>
+             <button class="btn btn-outline-danger btn-sm ms-1" style="font-size:11px;padding:1px 5px"
+                     onclick="regDeleteRefImage(${r.id})">削除</button>`
+          : `<button class="btn btn-outline-primary btn-sm" style="font-size:11px"
+                     onclick="document.getElementById('ref-input-${r.id}').click()">+ 設定</button>`}
+      </td>
+      <td>
+        <div class="d-flex gap-1">
+          ${r.yolo_model_id
+            ? `<button class="btn btn-sm btn-outline-success" onclick="regOpenLayout(${r.id})">📷 Layout</button>`
+            : ''}
+          <button class="btn btn-sm btn-outline-danger"
+                  onclick="regRemoveBarcode(${r.id},'${r.barcode_value}')">削除</button>
+        </div>
+      </td>
+    </tr>`).join('');
+
+  // 現在値をセット
+  regBarcodes.forEach(r => {
+    const sels = document.querySelectorAll(`#reg-row-${r.id} select`);
+    if (sels[0] && r.tray_model_id)  sels[0].value = r.tray_model_id;
+    if (sels[1] && r.yolo_model_id)  sels[1].value = r.yolo_model_id;
+  });
+}
+
+async function regSetModel(barcodeId, type, modelId) {
+  const body = type === 'tray'
+    ? { tray_model_id: modelId ? parseInt(modelId) : null }
+    : { yolo_model_id: modelId ? parseInt(modelId) : null };
+  try {
+    await api('PUT', '/admin/barcodes/' + barcodeId, body);
+    const bc = regBarcodes.find(b => b.id === barcodeId);
+    if (bc) Object.assign(bc, body);
+    const row = document.getElementById('reg-row-' + barcodeId);
+    if (row) { row.style.background = '#d1e7dd'; setTimeout(() => row.style.background = '', 800); }
+    renderRegTable();
+  } catch(e) { alert('保存失敗: ' + e.message); loadRegistrations(); }
+}
+
+async function regRemoveModel(id, name) {
+  if (!confirm(`モデル「${name}」を削除しますか？`)) return;
+  try { await api('DELETE', '/admin/models/' + id); loadRegistrations(); }
+  catch(e) { alert(e.message); }
+}
+
+async function regRemoveBarcode(id, val) {
+  if (!confirm(`バーコード「${val}」を削除しますか？関連する撮影画像も削除されます。`)) return;
+  try { await api('DELETE', '/admin/barcodes/' + id); loadRegistrations(); }
+  catch(e) { alert(e.message); }
+}
+
+async function regDeleteLayout(id) {
+  if (!confirm('レイアウト設定を削除しますか？')) return;
+  try { await api('DELETE', `/admin/barcodes/${id}/layout`); loadRegistrations(); }
+  catch(e) { alert(e.message); }
+}
+
+async function regSetRefImage(barcodeId, file) {
+  if (!file) return;
+  const fd = new FormData();
+  fd.append('image', file);
+  try {
+    await api('POST', `/admin/barcodes/${barcodeId}/reference-image`, fd, true);
+    loadRegistrations();
+  } catch(e) { alert('参考画像の設定に失敗しました: ' + e.message); }
+}
+
+async function regDeleteRefImage(id) {
+  if (!confirm('参考画像を削除しますか？')) return;
+  try { await api('DELETE', `/admin/barcodes/${id}/reference-image`); loadRegistrations(); }
+  catch(e) { alert(e.message); }
+}
+
+function regOpenLayout(barcodeId) {
+  // Step 6 のレイアウト生成をそのまま流用
+  s6BarcodeId = barcodeId;
+  document.getElementById('s6-layout-section').classList.remove('d-none');
+  setActiveStep(6);
+  document.getElementById('step6-card').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+// ─── Step 6: 検品に反映する ─────────────────────────────────
+let s6TrayModelId = null;
+let s6ProductModelId = null;
+let s6BarcodeId = null;
+
+function openStep6() {
+  toggleStep(6);
+  // フォルダ名をバーコード欄に自動入力（未入力の場合）
+  if (currentFolder) {
+    const bv = document.getElementById('s6-barcode-value');
+    const bn = document.getElementById('s6-barcode-name');
+    if (!bv.value) bv.value = currentFolder;
+    if (!bn.value) bn.value = currentFolder;
+  }
+}
+
+async function s6UploadModel(file, type) {
+  if (!file) return;
+  const isTray = type === 'tray';
+  const statusEl = document.getElementById(isTray ? 's6-tray-status' : 's6-product-status');
+  const folder = currentFolder || 'model';
+  const today = new Date().toISOString().slice(0, 10);
+  const modelName = isTray ? `tray_model_${today}` : `${folder}_product`;
+  const desc = isTray ? 'トレイ検出モデル（全トレイ共通）' : `製品検出モデル（${folder}専用）`;
+
+  statusEl.textContent = 'アップロード中...';
+  statusEl.className = 'small mt-1 text-muted';
+
+  const fd = new FormData();
+  fd.append('name', modelName);
+  fd.append('description', desc);
+  fd.append('status', 'active');
+  fd.append('model_file', file);
+
+  try {
+    const m = await api('POST', '/admin/models/', fd, true);
+    if (isTray) s6TrayModelId = m.id;
+    else s6ProductModelId = m.id;
+    statusEl.innerHTML = `✅ 登録済み（${m.name}）`;
+    statusEl.className = 'small mt-1 text-success';
+    s6UpdateState();
+  } catch(e) {
+    statusEl.textContent = 'エラー: ' + e.message;
+    statusEl.className = 'small mt-1 text-danger';
+  }
+}
+
+async function s6RegisterBarcode() {
+  const val = document.getElementById('s6-barcode-value').value.trim();
+  const name = document.getElementById('s6-barcode-name').value.trim() || val;
+  const statusEl = document.getElementById('s6-barcode-status');
+  if (!val) { alert('バーコード番号を入力してください'); return; }
+
+  const btn = document.getElementById('s6-register-btn');
+  btn.disabled = true; btn.textContent = '処理中...';
+
+  try {
+    let bc;
+    try {
+      bc = await api('POST', '/admin/barcodes/', { barcode_value: val, name });
+    } catch(e) {
+      // すでに登録済みの場合は検索して使用
+      if (e.message && e.message.includes('登録されています')) {
+        const all = await api('GET', '/admin/barcodes/?limit=1000');
+        bc = (all || []).find(b => b.barcode_value === val);
+      }
+      if (!bc) throw e;
+    }
+
+    s6BarcodeId = bc.id;
+
+    // モデルを割り当て
+    const upd = {};
+    if (s6TrayModelId)    upd.tray_model_id = s6TrayModelId;
+    if (s6ProductModelId) upd.yolo_model_id  = s6ProductModelId;
+    if (Object.keys(upd).length) await api('PUT', '/admin/barcodes/' + bc.id, upd);
+
+    statusEl.innerHTML = `✅ バーコード <code>${val}</code> 設定済み`;
+    statusEl.className = 'small mb-2 text-success';
+    s6UpdateState();
+  } catch(e) {
+    alert('エラー: ' + e.message);
+  } finally {
+    btn.disabled = false; btn.textContent = '登録して紐付ける';
+  }
+}
+
+function s6UpdateState() {
+  const hasProduct = !!s6ProductModelId;
+  const hasBarcode = !!s6BarcodeId;
+  document.getElementById('s6-barcode-section').classList.toggle('d-none', !hasProduct);
+  document.getElementById('s6-layout-section').classList.toggle('d-none', !hasBarcode);
+}
+
+function s6PreviewRefImage(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const img = document.getElementById('s6-preview-img');
+  img.src = URL.createObjectURL(file);
+  const wrap = document.getElementById('s6-preview-wrap');
+  wrap.classList.remove('d-none');
+  img.onload = () => {
+    const c = document.getElementById('s6-preview-canvas');
+    c.width = img.naturalWidth; c.height = img.naturalHeight;
+    c.getContext('2d').clearRect(0, 0, c.width, c.height);
+  };
+  document.getElementById('s6-layout-result').textContent = '';
+  document.getElementById('s6-done-banner').classList.add('d-none');
+}
+
+async function s6GenerateLayoutDirect() {
+  if (!s6BarcodeId) { alert('先にバーコードを登録してください'); return; }
+  const btn = document.getElementById('s6-direct-btn');
+  const resultEl = document.getElementById('s6-layout-result');
+  btn.disabled = true; btn.textContent = '生成中...';
+  resultEl.textContent = '';
+  try {
+    const data = await api('POST',
+      `/admin/barcodes/${s6BarcodeId}/generate-layout-direct`);
+    resultEl.innerHTML = `✅ ${data.item_count} 件のアイテムを生成しました（画像直接）`;
+    resultEl.className = 'small mt-2 text-success fw-bold';
+    document.getElementById('s6-done-banner').classList.remove('d-none');
+    document.getElementById('step6-card').classList.add('done');
+  } catch(e) {
+    resultEl.textContent = 'エラー: ' + e.message;
+    resultEl.className = 'small mt-2 text-danger';
+  } finally {
+    btn.disabled = false; btn.textContent = '📐 アノテーションから直接生成（推奨）';
+  }
+}
+
+async function s6GenerateLayoutFromAnnotations() {
+  if (!s6BarcodeId) { alert('先にバーコードを登録してください'); return; }
+  const btn = document.getElementById('s6-ann-btn');
+  const resultEl = document.getElementById('s6-layout-result');
+  btn.disabled = true; btn.textContent = '生成中...';
+  resultEl.textContent = '';
+  try {
+    const data = await api('POST',
+      `/admin/barcodes/${s6BarcodeId}/generate-layout-from-annotations`);
+    resultEl.innerHTML = `✅ アノテーションから ${data.item_count} 件のアイテムを生成しました`;
+    resultEl.className = 'small mt-2 text-success fw-bold';
+    document.getElementById('s6-done-banner').classList.remove('d-none');
+    document.getElementById('step6-card').classList.add('done');
+    loadRegistrations();
+  } catch(e) {
+    resultEl.textContent = 'エラー: ' + e.message;
+    resultEl.className = 'small mt-2 text-danger';
+  } finally {
+    btn.disabled = false; btn.textContent = '📋 アノテーションからレイアウト生成';
+  }
+}
+
+async function s6GenerateLayout() {
+  const file = document.getElementById('s6-ref-image').files[0];
+  if (!file) { alert('基準写真を選択してください'); return; }
+  if (!s6BarcodeId) { alert('先にバーコードを登録してください'); return; }
+
+  const conf = document.getElementById('s6-conf-slider').value;
+  const btn = document.getElementById('s6-gen-btn');
+  const resultEl = document.getElementById('s6-layout-result');
+  btn.disabled = true; btn.textContent = '生成中...';
+  resultEl.textContent = '';
+
+  const fd = new FormData(); fd.append('ref_image', file);
+  try {
+    const data = await api('POST',
+      `/admin/barcodes/${s6BarcodeId}/generate-layout?conf=${conf}`, fd, true);
+
+    resultEl.innerHTML = `✅ ${data.item_count} 件のアイテムを検出しました`;
+    resultEl.className = 'small mt-2 text-success fw-bold';
+
+    // プレビューキャンバスに描画
+    const img = document.getElementById('s6-preview-img');
+    const canvas = document.getElementById('s6-preview-canvas');
+    canvas.width = img.naturalWidth; canvas.height = img.naturalHeight;
+    const ctx = canvas.getContext('2d');
+    const lw = Math.max(3, canvas.width * 0.003);
+    const fs = Math.max(14, canvas.width * 0.016);
+    ctx.font = `bold ${fs}px sans-serif`;
+    const colors = ['#00ff00', '#00aaff', '#ffaa00', '#ff00aa', '#aa00ff'];
+    data.items.forEach((item, i) => {
+      const color = colors[i % colors.length];
+      const x = (item.cx - item.w / 2) * canvas.width;
+      const y = (item.cy - item.h / 2) * canvas.height;
+      ctx.lineWidth = lw; ctx.strokeStyle = color;
+      ctx.strokeRect(x, y, item.w * canvas.width, item.h * canvas.height);
+      ctx.fillStyle = color;
+      ctx.fillText(item.class_name, x + 4, y + fs + 2);
+    });
+
+    document.getElementById('s6-done-banner').classList.remove('d-none');
+    document.getElementById('step6-card').classList.add('done');
+    loadRegistrations();  // 一覧を更新
+  } catch(e) {
+    resultEl.textContent = 'エラー: ' + e.message;
+    resultEl.className = 'small mt-2 text-danger';
+  } finally {
+    btn.disabled = false; btn.textContent = '🔍 レイアウトを自動生成';
+  }
+}
+</script>
+</body>
+</html>

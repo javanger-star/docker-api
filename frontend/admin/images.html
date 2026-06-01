@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>画像管理</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+<style>
+.thumb-img{width:100%;aspect-ratio:16/9;object-fit:cover;cursor:pointer}
+.badge-green{background:#198754}
+.badge-red{background:#dc3545}
+.badge-yellow{background:#ffc107;color:#000}
+</style>
+</head>
+<body>
+<div id="nav-placeholder"></div>
+<div class="container-fluid py-4">
+  <h4 class="mb-3">画像管理</h4>
+
+  <!-- Search -->
+  <div class="row g-2 mb-3">
+    <div class="col-md-4">
+      <input id="s-barcode" type="text" class="form-control" placeholder="バーコード番号で検索">
+    </div>
+    <div class="col-auto">
+      <button class="btn btn-outline-secondary" onclick="load()">検索</button>
+      <button class="btn btn-outline-secondary" onclick="clearSearch()">クリア</button>
+    </div>
+  </div>
+
+  <div id="gallery" class="row g-3"></div>
+  <div class="text-center mt-3">
+    <button id="load-more" class="btn btn-outline-secondary d-none" onclick="loadMore()">さらに読み込む</button>
+  </div>
+</div>
+
+<!-- Detail modal -->
+<div class="modal fade" id="detail-modal" tabindex="-1">
+  <div class="modal-dialog modal-xl">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="detail-title">画像詳細</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="row">
+          <div class="col-md-8">
+            <div style="position:relative">
+              <img id="detail-img" class="img-fluid w-100" alt="">
+              <canvas id="detail-canvas" style="position:absolute;top:0;left:0;width:100%;height:100%"></canvas>
+            </div>
+          </div>
+          <div class="col-md-4">
+            <div id="detail-info"></div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-danger" id="detail-del-btn">削除</button>
+        <button class="btn btn-secondary" data-bs-dismiss="modal">閉じる</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="/admin/_common.js?v=3"></script>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+document.getElementById('nav-placeholder').innerHTML = renderNav('images');
+const detailModal = new bootstrap.Modal(document.getElementById('detail-modal'));
+let skip = 0;
+const LIMIT = 24;
+let currentDetailId = null;
+
+function clearSearch() {
+  document.getElementById('s-barcode').value = '';
+  skip = 0;
+  document.getElementById('gallery').innerHTML = '';
+  load();
+}
+
+async function load() {
+  skip = 0;
+  document.getElementById('gallery').innerHTML = '';
+  await fetchPage();
+}
+
+async function loadMore() {
+  await fetchPage();
+}
+
+async function fetchPage() {
+  const bv = document.getElementById('s-barcode').value.trim();
+  let url = `/admin/images/?skip=${skip}&limit=${LIMIT}`;
+  if (bv) url += '&barcode_value=' + encodeURIComponent(bv);
+
+  const rows = await api('GET', url) || [];
+  skip += rows.length;
+
+  document.getElementById('load-more').classList.toggle('d-none', rows.length < LIMIT);
+
+  const gallery = document.getElementById('gallery');
+  rows.forEach(r => {
+    const col = document.createElement('div');
+    col.className = 'col-6 col-md-3 col-lg-2';
+    col.innerHTML = `
+      <div class="card h-100">
+        <img src="/api/capture/thumbnail/${r.id}" class="thumb-img" alt="" onerror="this.src='/api/capture/image/${r.id}'" onclick="openDetail(${r.id})">
+        <div class="card-body p-2">
+          <div class="small fw-bold">${r.barcode?.barcode_value || '-'}</div>
+          <div class="small text-muted">${fmtDate(r.captured_at)}</div>
+          ${detectionBadges(r.detection_result)}
+        </div>
+      </div>`;
+    gallery.appendChild(col);
+  });
+
+  if (rows.length === 0 && skip === 0) {
+    gallery.innerHTML = '<div class="col"><p class="text-muted">画像がありません</p></div>';
+  }
+}
+
+function detectionBadges(dr) {
+  if (!dr || !dr.boxes) return '';
+  const c = { green: 0, red: 0, yellow: 0 };
+  dr.boxes.forEach(b => c[b.color] = (c[b.color] || 0) + 1);
+  return `<div class="mt-1">
+    ${c.green ? `<span class="badge badge-green">${c.green}正常</span> ` : ''}
+    ${c.red ? `<span class="badge badge-red">${c.red}欠品</span> ` : ''}
+    ${c.yellow ? `<span class="badge badge-yellow">${c.yellow}位置ずれ</span>` : ''}
+  </div>`;
+}
+
+function openDetail(id) {
+  currentDetailId = id;
+  const imgEl = document.getElementById('detail-img');
+  const canvas = document.getElementById('detail-canvas');
+  canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
+  imgEl.src = '/api/capture/image/' + id + '?' + Date.now();
+  imgEl.onload = async () => {
+    const data = await api('GET', '/admin/images/' + id);
+    if (!data) return;
+    document.getElementById('detail-title').textContent = data.filename;
+    document.getElementById('detail-info').innerHTML = `
+      <p><strong>バーコード:</strong> ${data.barcode?.barcode_value || '-'}</p>
+      <p><strong>名前:</strong> ${data.barcode?.name || '-'}</p>
+      <p><strong>撮影日時:</strong> ${fmtDate(data.captured_at)}</p>
+      ${detectionInfoHtml(data.detection_result)}`;
+    if (data.detection_result?.boxes) drawBoxes(data.detection_result.boxes, imgEl, canvas);
+    document.getElementById('detail-del-btn').onclick = () => deleteImage(id);
+    detailModal.show();
+  };
+}
+
+function detectionInfoHtml(dr) {
+  if (!dr) return '<p class="text-muted">YOLOモデル未設定</p>';
+  if (dr.error) return `<p class="text-danger">エラー: ${dr.error}</p>`;
+  const { boxes = [] } = dr;
+  const c = { green: 0, red: 0, yellow: 0 };
+  boxes.forEach(b => c[b.color] = (c[b.color] || 0) + 1);
+  return `<p><strong>検知結果:</strong></p>
+    <ul>
+      <li><span style="color:green">■</span> 正常: ${c.green}件</li>
+      <li><span style="color:red">■</span> 欠品: ${c.red}件</li>
+      <li><span style="color:gold">■</span> 位置ずれ: ${c.yellow}件</li>
+    </ul>`;
+}
+
+function drawBoxes(boxes, imgEl, canvas) {
+  canvas.width = imgEl.naturalWidth;
+  canvas.height = imgEl.naturalHeight;
+  const ctx = canvas.getContext('2d');
+  ctx.lineWidth = Math.max(3, canvas.width * 0.003);
+  const fs = Math.max(14, canvas.width * 0.016);
+  ctx.font = `bold ${fs}px sans-serif`;
+  boxes.forEach(box => {
+    const x = (box.cx - box.w / 2) * canvas.width;
+    const y = (box.cy - box.h / 2) * canvas.height;
+    ctx.strokeStyle = box.color;
+    ctx.strokeRect(x, y, box.w * canvas.width, box.h * canvas.height);
+    ctx.fillStyle = box.color;
+    ctx.fillText(box.class_name, x + 4, y + fs + 2);
+  });
+}
+
+async function deleteImage(id) {
+  if (!confirm('この画像を削除しますか？')) return;
+  try {
+    await api('DELETE', '/admin/images/' + id);
+    detailModal.hide();
+    load();
+  } catch (e) { alert(e.message); }
+}
+
+load();
+</script>
+</body>
+</html>

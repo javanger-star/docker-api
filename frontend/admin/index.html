@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>管理画面</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body>
+<div id="nav-placeholder"></div>
+<div class="container py-4">
+  <h4 class="mb-4">ダッシュボード</h4>
+  <div class="row g-3" id="stats"></div>
+</div>
+<script src="/admin/_common.js?v=3"></script>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+document.getElementById('nav-placeholder').innerHTML = renderNav('index');
+
+async function load() {
+  try {
+    const [barcodes, models, images, users] = await Promise.all([
+      api('GET', '/admin/barcodes/?limit=1000'),
+      api('GET', '/admin/models/'),
+      api('GET', '/admin/images/?limit=1000'),
+      api('GET', '/admin/users/'),
+    ]);
+    const cards = [
+      { label: 'バーコード登録数', val: barcodes?.length ?? '-', href: '/admin/training', color: 'primary' },
+      { label: 'YOLOモデル数', val: models?.length ?? '-', href: '/admin/training', color: 'success' },
+      { label: '撮影画像数', val: images?.length ?? '-', href: '/admin/images', color: 'info' },
+      { label: '管理者数', val: users?.length ?? '-', href: '/admin/users', color: 'warning' },
+    ];
+    document.getElementById('stats').innerHTML = cards.map(c => `
+      <div class="col-6 col-md-3">
+        <a href="${c.href}" class="text-decoration-none">
+          <div class="card border-${c.color} h-100">
+            <div class="card-body text-center">
+              <div class="display-4 fw-bold text-${c.color}">${c.val}</div>
+              <div class="text-muted">${c.label}</div>
+            </div>
+          </div>
+        </a>
+      </div>`).join('');
+  } catch (e) {
+    document.getElementById('stats').innerHTML = `<div class="col"><div class="alert alert-danger">${e.message}</div></div>`;
+  }
+}
+load();
+</script>
+</body>
+</html>

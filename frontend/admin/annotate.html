@@ -1,0 +1,872 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>アノテーション</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+<style>
+* { box-sizing: border-box; }
+body { margin: 0; background: #1a1a2e; color: #e0e0e0; font-family: sans-serif; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+
+/* Nav */
+#topbar { background: #16213e; padding: 8px 14px; display: flex; align-items: center; gap: 12px; flex-shrink: 0; border-bottom: 1px solid #0f3460; }
+#topbar a { color: #aaa; text-decoration: none; font-size: 13px; }
+#topbar a:hover { color: #fff; }
+.tb-sep { color: #444; }
+#img-progress { font-size: 13px; color: #aaa; margin-left: auto; }
+
+/* Main layout */
+#main { display: flex; flex: 1; min-height: 0; }
+
+/* Left: image list */
+#img-list { width: 180px; flex-shrink: 0; background: #16213e; border-right: 1px solid #0f3460; overflow-y: auto; }
+.img-item { padding: 6px 8px; cursor: pointer; border-bottom: 1px solid #0f3460; display: flex; align-items: center; gap: 6px; font-size: 12px; }
+.img-item:hover { background: #0f3460; }
+.img-item.active { background: #0d6efd; color: #fff; }
+.img-item.done { border-left: 3px solid #28a745; }
+.img-item.undone { border-left: 3px solid #6c757d; }
+.img-thumb-mini { width: 48px; height: 27px; object-fit: cover; border-radius: 2px; flex-shrink: 0; background: #333; display:block; }
+.img-thumb-err { width: 48px; height: 27px; border-radius: 2px; flex-shrink: 0; background: #2a2a2a; display:flex; align-items:center; justify-content:center; font-size:14px; }
+.img-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.img-badge { font-size: 10px; margin-left: auto; flex-shrink: 0; }
+
+/* Center: canvas area */
+#canvas-area { flex: 1; display: flex; flex-direction: column; min-width: 0; position: relative; background: #111; }
+#canvas-wrap { flex: 1; display: flex; align-items: center; justify-content: center; overflow: hidden; position: relative; }
+#ann-canvas { display: block; cursor: crosshair; }
+#canvas-placeholder { text-align: center; color: #555; }
+
+/* Right: class + boxes */
+#right-panel { width: 220px; flex-shrink: 0; background: #16213e; border-left: 1px solid #0f3460; display: flex; flex-direction: column; overflow: hidden; }
+.panel-section { border-bottom: 1px solid #0f3460; padding: 10px; flex-shrink: 0; }
+.panel-title { font-size: 11px; text-transform: uppercase; color: #888; margin-bottom: 8px; letter-spacing: 1px; }
+.class-btn { width: 100%; text-align: left; padding: 6px 8px; border: 1px solid transparent; border-radius: 4px; cursor: pointer; font-size: 13px; color: #ddd; background: transparent; margin-bottom: 3px; display: flex; align-items: center; gap: 6px; transition: all .1s; }
+.class-btn:hover { background: rgba(255,255,255,.08); }
+.class-btn.active { background: rgba(255,255,255,.15); border-color: rgba(255,255,255,.3); }
+.class-dot { width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0; }
+.class-key { font-size: 10px; color: #888; margin-left: auto; background: #333; padding: 1px 4px; border-radius: 2px; }
+#box-list-wrap { flex: 1; overflow-y: auto; padding: 10px; }
+.box-item { padding: 5px 8px; border-radius: 4px; cursor: pointer; font-size: 12px; margin-bottom: 3px; display: flex; align-items: center; gap: 6px; border: 1px solid transparent; }
+.box-item:hover { background: rgba(255,255,255,.06); }
+.box-item.selected-box { background: rgba(255,255,255,.12); border-color: rgba(255,255,255,.2); }
+.box-del { margin-left: auto; background: none; border: none; color: #f55; cursor: pointer; font-size: 14px; padding: 0 2px; }
+
+/* Bottom bar */
+#bottom-bar { flex-shrink: 0; background: #16213e; border-top: 1px solid #0f3460; padding: 8px 14px; display: flex; align-items: center; gap: 8px; }
+.nav-btn { padding: 5px 14px; font-size: 13px; }
+#save-btn { background: #28a745; border: none; color: #fff; border-radius: 4px; padding: 5px 16px; font-size: 13px; cursor: pointer; }
+#save-btn:hover { background: #218838; }
+#save-status { font-size: 12px; color: #888; margin-left: 4px; }
+#help-btn { margin-left: auto; background: none; border: 1px solid #555; color: #aaa; border-radius: 4px; padding: 4px 10px; font-size: 12px; cursor: pointer; }
+
+/* Guide overlay */
+#guide-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.85); z-index: 1000; align-items: center; justify-content: center; }
+#guide-box { background: #16213e; border: 1px solid #0f3460; border-radius: 12px; width: 560px; max-width: 95vw; padding: 28px; }
+#guide-box h4 { margin-bottom: 20px; text-align: center; }
+.guide-step { display: flex; align-items: flex-start; gap: 14px; margin-bottom: 18px; }
+.guide-num { width: 32px; height: 32px; border-radius: 50%; background: #0d6efd; display: flex; align-items: center; justify-content: center; font-weight: bold; flex-shrink: 0; }
+.guide-content strong { display: block; margin-bottom: 3px; }
+.guide-content small { color: #aaa; }
+.shortcut-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 4px 16px; margin-top: 12px; }
+.sc { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+.key { background: #333; border: 1px solid #555; padding: 1px 6px; border-radius: 3px; font-family: monospace; font-size: 11px; color: #ddd; }
+
+/* Toast */
+#toast { position: fixed; bottom: 20px; right: 20px; padding: 8px 16px; border-radius: 6px; font-size: 13px; z-index: 9999; display: none; }
+#toast.ok { background: #28a745; color: #fff; }
+#toast.err { background: #dc3545; color: #fff; }
+
+/* Per-image phase indicator */
+#phase-indicator { display: flex; }
+.phase-active-tray   { background: #0d6efd !important; color: #fff !important; font-weight: bold; }
+.phase-active-product { background: #28a745 !important; color: #fff !important; font-weight: bold; }
+.phase-inactive { background: #0f3460; color: #555; }
+</style>
+</head>
+<body>
+
+<!-- Top bar -->
+<div id="topbar">
+  <a href="/admin/training">← 学習データ管理</a>
+  <span class="tb-sep">|</span>
+  <span style="font-size:14px;font-weight:bold;">アノテーション</span>
+  <span class="tb-sep">|</span>
+  <label style="font-size:12px;color:#aaa;margin:0;">📁</label>
+  <select id="folder-select" style="background:#0f3460;color:#ddd;border:1px solid #333;border-radius:4px;padding:2px 6px;font-size:12px;"
+          onchange="changeFolder(this.value)">
+    <option value="">全フォルダ</option>
+  </select>
+  <span id="mode-wrapper" style="display:flex;align-items:center;gap:8px;">
+    <span class="tb-sep">|</span>
+    <label style="font-size:12px;color:#aaa;margin:0;">作業:</label>
+    <select id="mode-select" style="background:#0f3460;color:#ddd;border:1px solid #333;border-radius:4px;padding:2px 6px;font-size:12px;"
+            onchange="changeMode(this.value)">
+      <option value="all">🏷 全クラス</option>
+      <option value="tray">🔲 ① トレイのみ</option>
+      <option value="product">📦 ② 製品のみ</option>
+    </select>
+  </span>
+  <span id="current-filename" style="font-size:12px;color:#888;"></span>
+  <span id="img-progress" class="ms-auto"></span>
+</div>
+
+<!-- Main -->
+<div id="main">
+
+  <!-- Left: image list -->
+  <div id="img-list">
+    <div style="padding:8px;font-size:11px;color:#888;text-transform:uppercase;letter-spacing:1px;">画像一覧</div>
+    <div id="img-items"></div>
+  </div>
+
+  <!-- Center: canvas -->
+  <div id="canvas-area">
+    <div id="canvas-wrap">
+      <div id="canvas-placeholder">
+        <div style="font-size:48px">🖼️</div>
+        <div>左の一覧から画像を選択してください</div>
+      </div>
+      <canvas id="ann-canvas" style="display:none"></canvas>
+    </div>
+  </div>
+
+  <!-- Right: class panel + box list -->
+  <div id="right-panel">
+    <div class="panel-section">
+      <div class="panel-title">クラス選択</div>
+      <div id="class-btns"></div>
+      <div style="font-size:11px;color:#666;margin-top:6px;">数字キー 1〜9 でも選択</div>
+    </div>
+    <div class="panel-section" style="flex-shrink:0;">
+      <div class="panel-title">この画像のボックス <span id="box-count" class="badge bg-secondary">0</span></div>
+    </div>
+    <div id="box-list-wrap">
+      <div id="box-list"></div>
+      <div id="no-boxes" style="font-size:12px;color:#555;text-align:center;padding:12px;">
+        ボックスがありません
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- Bottom bar -->
+<div id="bottom-bar">
+  <button class="btn btn-sm btn-outline-secondary nav-btn" id="prev-btn" onclick="handlePrev()">← 前へ</button>
+  <!-- 1画像ずつモード: フェーズ表示 -->
+  <div id="phase-indicator" style="display:none;align-items:center;gap:6px;font-size:13px;">
+    <span id="phase-tray-lbl" style="padding:2px 12px;border-radius:4px;">🔲 トレイ</span>
+    <span style="color:#444;font-size:11px;">→</span>
+    <span id="phase-product-lbl" style="padding:2px 12px;border-radius:4px;">📦 製品</span>
+  </div>
+  <button id="save-btn" onclick="saveLabel()">💾 保存 (S)</button>
+  <span id="save-status"></span>
+  <button class="btn btn-sm btn-outline-secondary nav-btn" id="next-btn" onclick="handleNext()">次へ →</button>
+  <button id="help-btn" onclick="showGuide()">? 操作ガイド</button>
+</div>
+
+<!-- Guide overlay -->
+<div id="guide-overlay">
+  <div id="guide-box">
+    <h4>📌 アノテーション操作ガイド</h4>
+    <div class="guide-step">
+      <div class="guide-num">1</div>
+      <div class="guide-content">
+        <strong>クラスを選択する</strong>
+        <small>右パネルのクラス一覧をクリック、またはキーボード 1〜9 で選択します。<br>
+        <span style="color:#f0c040">「tray（トレイ全体）」も必ずラベリングしてください</span></small>
+      </div>
+    </div>
+    <div class="guide-step">
+      <div class="guide-num">2</div>
+      <div class="guide-content">
+        <strong>ボックスを描く</strong>
+        <small>画像上でクリック＆ドラッグして四角形を描きます。<br>
+        物体全体を囲むようにぴったり描くと精度が上がります。<br>
+        部分的に隠れた物体も見えている範囲でラベリングしてください。</small>
+      </div>
+    </div>
+    <div class="guide-step">
+      <div class="guide-num">3</div>
+      <div class="guide-content">
+        <strong>ボックスを編集・削除する</strong>
+        <small>ボックスをクリックで選択（点線になります）。<br>
+        Delete キー または右パネルの × ボタンで削除。<br>
+        Esc キーで選択解除。</small>
+      </div>
+    </div>
+    <div class="guide-step">
+      <div class="guide-num">4</div>
+      <div class="guide-content">
+        <strong>保存して次の画像へ</strong>
+        <small>S キーまたは「保存」ボタンで保存。<br>
+        → / ← キーまたはボタンで画像移動（自動保存されます）。</small>
+      </div>
+    </div>
+    <div class="panel-title" style="margin-top:4px;">キーボードショートカット</div>
+    <div class="shortcut-grid">
+      <div class="sc"><span class="key">1</span>〜<span class="key">9</span><span>クラス選択</span></div>
+      <div class="sc"><span class="key">S</span><span>保存</span></div>
+      <div class="sc"><span class="key">→</span><span>次の画像</span></div>
+      <div class="sc"><span class="key">←</span><span>前の画像</span></div>
+      <div class="sc"><span class="key">Delete</span><span>選択ボックスを削除</span></div>
+      <div class="sc"><span class="key">Esc</span><span>選択解除</span></div>
+      <div class="sc"><span class="key">Z</span><span>最後のボックスを取り消し</span></div>
+    </div>
+    <button class="btn btn-primary w-100 mt-3" onclick="hideGuide()">✅ わかりました</button>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script src="/admin/_common.js?v=3"></script>
+<script>
+// ─── 定数 ─────────────────────────────────────────────────────
+const COLORS = [
+  '#FF6B6B','#4ECDC4','#45B7D1','#96CEB4','#FFD93D',
+  '#C7A0D4','#F7B731','#26de81','#FC5C65','#45AAF2',
+  '#FD9644','#A55EEA','#2BCBBA','#EB3B5A','#20BF6B',
+  '#0FB9B1','#E17055','#6C5CE7','#FDCB6E','#00B894',
+];
+function classColor(idx) { return COLORS[idx % COLORS.length]; }
+
+// ─── 状態 ─────────────────────────────────────────────────────
+let images = [];        // TrainingImage レコード一覧
+let classes = [];       // TrainingClass 一覧
+let classMode = 'all';  // 'all' | 'tray' | 'product'
+let perImage = false;   // 1画像ずつモード
+let imagePhase = 'tray'; // per-imageモード内のフェーズ: 'tray' | 'product'
+let currentIdx = -1;    // 現在の画像インデックス
+let boxes = [];         // 現在の画像のボックス [{id, class_id, cx, cy, w, h}]
+let selectedBox = -1;   // 選択中ボックスのインデックス
+let selectedClass = 0;  // 選択中クラスインデックス
+let drawing = false;    // ドラッグ中フラグ
+let dragStart = null;   // ドラッグ開始座標（canvas座標）
+let dragCurrent = null;
+let nextId = 1;
+let dirty = false;
+
+// ─── Canvas ───────────────────────────────────────────────────
+const canvas = document.getElementById('ann-canvas');
+const ctx = canvas.getContext('2d');
+let imgEl = null;      // 現在表示中の Image 要素
+let scale = 1;         // 表示スケール
+let offsetX = 0, offsetY = 0; // canvas内の画像オフセット
+
+function toCanvas(nx, ny) {  // 正規化 → canvas座標
+  return [nx * imgEl.naturalWidth * scale + offsetX,
+          ny * imgEl.naturalHeight * scale + offsetY];
+}
+function toNorm(cx, cy) {    // canvas座標 → 正規化
+  return [(cx - offsetX) / (imgEl.naturalWidth * scale),
+          (cy - offsetY) / (imgEl.naturalHeight * scale)];
+}
+function clamp01(v) { return Math.max(0, Math.min(1, v)); }
+
+function fitImage() {
+  if (!imgEl) return;
+  const wrap = document.getElementById('canvas-wrap');
+  const W = wrap.clientWidth, H = wrap.clientHeight;
+  const ir = imgEl.naturalWidth / imgEl.naturalHeight;
+  const wr = W / H;
+  if (ir > wr) { scale = W / imgEl.naturalWidth; }
+  else          { scale = H / imgEl.naturalHeight; }
+  canvas.width  = W;
+  canvas.height = H;
+  offsetX = (W - imgEl.naturalWidth  * scale) / 2;
+  offsetY = (H - imgEl.naturalHeight * scale) / 2;
+}
+
+// 点アノテーション描画
+function drawPoint(x, y, color, selected) {
+  const r   = selected ? 9 : 7;
+  const arm = selected ? 18 : 14;
+  ctx.save();
+  ctx.strokeStyle = color;
+  ctx.lineWidth = selected ? 2.5 : 2;
+  // 十字
+  ctx.beginPath();
+  ctx.moveTo(x - arm, y); ctx.lineTo(x + arm, y);
+  ctx.moveTo(x, y - arm); ctx.lineTo(x, y + arm);
+  ctx.stroke();
+  // 円
+  ctx.beginPath();
+  ctx.arc(x, y, r, 0, Math.PI * 2);
+  ctx.fillStyle = color + '55';
+  ctx.fill();
+  ctx.strokeStyle = color;
+  ctx.stroke();
+  if (selected) {
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = '#fff';
+    ctx.beginPath(); ctx.arc(x, y, r + 3, 0, Math.PI * 2); ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function render() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  if (!imgEl) return;
+
+  // 背景
+  ctx.fillStyle = '#111';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  // 画像
+  ctx.drawImage(imgEl,
+    offsetX, offsetY,
+    imgEl.naturalWidth * scale, imgEl.naturalHeight * scale);
+
+  // 確定済みボックス・ポイント
+  boxes.forEach((box, i) => {
+    const color = classColor(box.class_id);
+    const label = classes[box.class_id]?.name ?? `class_${box.class_id}`;
+    const sel   = i === selectedBox;
+
+    if (box.w === 0 && box.h === 0) {
+      // ─ 点アノテーション ─
+      const [px, py] = toCanvas(box.cx, box.cy);
+      drawPoint(px, py, color, sel);
+      // ラベル
+      ctx.save();
+      ctx.font = 'bold 11px sans-serif';
+      const tw = ctx.measureText(label).width + 6;
+      ctx.fillStyle = color;
+      ctx.fillRect(px + 12, py - 9, tw, 16);
+      ctx.fillStyle = '#000';
+      ctx.fillText(label, px + 15, py + 4);
+      ctx.restore();
+    } else {
+      // ─ 矩形アノテーション ─
+      const [x1, y1] = toCanvas(box.cx - box.w/2, box.cy - box.h/2);
+      const [x2, y2] = toCanvas(box.cx + box.w/2, box.cy + box.h/2);
+      const bw = x2 - x1, bh = y2 - y1;
+      ctx.save();
+      ctx.fillStyle = color + '22';
+      ctx.fillRect(x1, y1, bw, bh);
+      ctx.lineWidth = sel ? 2.5 : 1.5;
+      ctx.strokeStyle = color;
+      if (sel) ctx.setLineDash([6, 3]);
+      ctx.strokeRect(x1, y1, bw, bh);
+      ctx.setLineDash([]);
+      // ラベル
+      ctx.font = 'bold 12px sans-serif';
+      const tw = ctx.measureText(label).width + 8;
+      const ty = y1 > 18 ? y1 - 18 : y1 + bh;
+      ctx.fillStyle = color;
+      ctx.fillRect(x1, ty, tw, 18);
+      ctx.fillStyle = '#000';
+      ctx.fillText(label, x1 + 4, ty + 13);
+      // 選択ハンドル
+      if (sel) {
+        [[x1,y1],[x2,y1],[x1,y2],[x2,y2]].forEach(([hx,hy]) => {
+          ctx.fillStyle = color;
+          ctx.fillRect(hx-4, hy-4, 8, 8);
+        });
+      }
+      ctx.restore();
+    }
+  });
+
+  // ドラッグ中プレビュー
+  if (drawing && dragStart && dragCurrent) {
+    const color = classColor(selectedClass);
+    if (isPointClass(selectedClass)) {
+      // 点クラス: クリック位置にプレビュー十字
+      drawPoint(dragStart.x, dragStart.y, color, false);
+    } else {
+      // 矩形クラス: 点線ボックス
+      const dx = Math.min(dragStart.x, dragCurrent.x);
+      const dy = Math.min(dragStart.y, dragCurrent.y);
+      const dw = Math.abs(dragCurrent.x - dragStart.x);
+      const dh = Math.abs(dragCurrent.y - dragStart.y);
+      ctx.save();
+      ctx.fillStyle = color + '33';
+      ctx.fillRect(dx, dy, dw, dh);
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 2;
+      ctx.setLineDash([5, 3]);
+      ctx.strokeRect(dx, dy, dw, dh);
+      ctx.setLineDash([]);
+      ctx.restore();
+    }
+  }
+}
+
+// ─── Canvas イベント ───────────────────────────────────────────
+canvas.addEventListener('mousedown', e => {
+  if (!imgEl) return;
+  const r = canvas.getBoundingClientRect();
+  const cx = e.clientX - r.left, cy = e.clientY - r.top;
+
+  // 既存ボックス・ポイントのクリック判定
+  for (let i = boxes.length - 1; i >= 0; i--) {
+    const box = boxes[i];
+    if (box.w === 0 && box.h === 0) {
+      const [px, py] = toCanvas(box.cx, box.cy);
+      if (Math.hypot(cx - px, cy - py) <= 14) {
+        selectedBox = i; renderBoxList(); render(); return;
+      }
+    } else {
+      const [x1,y1] = toCanvas(box.cx - box.w/2, box.cy - box.h/2);
+      const [x2,y2] = toCanvas(box.cx + box.w/2, box.cy + box.h/2);
+      if (cx >= x1 && cx <= x2 && cy >= y1 && cy <= y2) {
+        selectedBox = i; renderBoxList(); render(); return;
+      }
+    }
+  }
+
+  // 新規ドラッグ開始
+  selectedBox = -1;
+  drawing = true;
+  dragStart = { x: cx, y: cy };
+  dragCurrent = { x: cx, y: cy };
+  render();
+});
+
+canvas.addEventListener('mousemove', e => {
+  if (!drawing) return;
+  const r = canvas.getBoundingClientRect();
+  dragCurrent = { x: e.clientX - r.left, y: e.clientY - r.top };
+  render();
+});
+
+canvas.addEventListener('mouseup', e => {
+  if (!drawing) return;
+  drawing = false;
+  const r = canvas.getBoundingClientRect();
+  const ex = e.clientX - r.left, ey = e.clientY - r.top;
+
+  if (isPointClass(selectedClass)) {
+    // ── 点アノテーション（クリックで登録）──
+    const cxn = clamp01((dragStart.x - offsetX) / (imgEl.naturalWidth * scale));
+    const cyn = clamp01((dragStart.y - offsetY) / (imgEl.naturalHeight * scale));
+    // 同じクラスの既存点を削除（1隅1点）
+    boxes = boxes.filter(b => b.class_id !== selectedClass);
+    boxes.push({ id: nextId++, class_id: selectedClass, cx: cxn, cy: cyn, w: 0, h: 0 });
+    selectedBox = boxes.length - 1;
+    dirty = true;
+    renderBoxList();
+    render();
+    return;
+  }
+
+  // ── 矩形アノテーション ──
+  const dw = Math.abs(ex - dragStart.x);
+  const dh = Math.abs(ey - dragStart.y);
+  if (dw < 8 || dh < 8) { render(); return; } // 小さすぎる → キャンセル
+
+  const x1n = clamp01((Math.min(dragStart.x, ex) - offsetX) / (imgEl.naturalWidth * scale));
+  const y1n = clamp01((Math.min(dragStart.y, ey) - offsetY) / (imgEl.naturalHeight * scale));
+  const x2n = clamp01((Math.max(dragStart.x, ex) - offsetX) / (imgEl.naturalWidth * scale));
+  const y2n = clamp01((Math.max(dragStart.y, ey) - offsetY) / (imgEl.naturalHeight * scale));
+
+  boxes.push({
+    id: nextId++,
+    class_id: selectedClass,
+    cx: (x1n + x2n) / 2,
+    cy: (y1n + y2n) / 2,
+    w: x2n - x1n,
+    h: y2n - y1n,
+  });
+  selectedBox = boxes.length - 1;
+  dirty = true;
+  renderBoxList();
+  render();
+});
+
+canvas.addEventListener('mouseleave', () => {
+  if (drawing) { drawing = false; render(); }
+});
+
+// ─── キーボードショートカット ────────────────────────────────────
+document.addEventListener('keydown', e => {
+  if (e.target.tagName === 'INPUT') return;
+  if (e.key >= '1' && e.key <= '9') {
+    const i = parseInt(e.key) - 1;
+    const vis = visibleClasses();
+    if (i < vis.length) selectClass(vis[i].origIdx);
+  }
+  if (e.key === 'Delete' || e.key === 'Backspace') {
+    if (selectedBox >= 0) deleteBox(selectedBox);
+  }
+  if (e.key === 'Escape') { selectedBox = -1; render(); renderBoxList(); }
+  if (e.key === 's' || e.key === 'S') saveLabel();
+  if (e.key === 'ArrowRight') handleNext();
+  if (e.key === 'ArrowLeft')  handlePrev();
+  if (e.key === 'z' || e.key === 'Z') {
+    if (boxes.length) { boxes.pop(); selectedBox = -1; dirty = true; renderBoxList(); render(); }
+  }
+});
+
+window.addEventListener('resize', () => { fitImage(); render(); });
+
+// ─── クラスモード ──────────────────────────────────────────────
+function isTrayClass(name) { return /^tray/i.test(name); }
+function isPointClass(classId) {
+  return /^tray_[lrud]{2}$/i.test(classes[classId]?.name ?? '');
+}
+
+function visibleClasses() {
+  if (classMode === 'tray')    return classes.map((c,i) => ({...c, origIdx:i})).filter(c => isTrayClass(c.name));
+  if (classMode === 'product') return classes.map((c,i) => ({...c, origIdx:i})).filter(c => !isTrayClass(c.name));
+  return classes.map((c,i) => ({...c, origIdx:i}));
+}
+
+function changeMode(mode) {
+  classMode = mode;
+  document.getElementById('mode-select').value = mode;
+  const vis = visibleClasses();
+  if (vis.length > 0) selectClass(vis[0].origIdx);
+  else renderClassPanel();
+  // per-imageモードではURLを書き換えない（?mode=per-imageを保持する）
+  if (!perImage) {
+    const url = new URL(window.location.href);
+    if (mode !== 'all') url.searchParams.set('mode', mode);
+    else url.searchParams.delete('mode');
+    history.replaceState(null, '', url.toString());
+  }
+}
+
+// ─── クラス操作 ────────────────────────────────────────────────
+function selectClass(idx) {
+  selectedClass = idx;
+  renderClassPanel();
+}
+
+function renderClassPanel() {
+  const el = document.getElementById('class-btns');
+  const vis = visibleClasses();
+  if (!classes.length) {
+    el.innerHTML = '<div style="font-size:12px;color:#666;">クラスが未設定です<br><a href="/admin/training" style="color:#4ECDC4;">→ 学習データ管理で設定</a></div>';
+    return;
+  }
+  if (!vis.length) {
+    el.innerHTML = '<div style="font-size:12px;color:#666;">このモードのクラスなし</div>';
+    return;
+  }
+  el.innerHTML = vis.map((c, i) => `
+    <button class="class-btn ${c.origIdx === selectedClass ? 'active' : ''}" onclick="selectClass(${c.origIdx})">
+      <span class="class-dot" style="background:${classColor(c.origIdx)}"></span>
+      <span>${c.name}</span>
+      <span class="class-key">${i < 9 ? i+1 : ''}</span>
+    </button>`).join('');
+}
+
+// ─── ボックス一覧 ──────────────────────────────────────────────
+function renderBoxList() {
+  document.getElementById('box-count').textContent = boxes.length;
+  const list = document.getElementById('box-list');
+  const none = document.getElementById('no-boxes');
+  if (!boxes.length) { list.innerHTML = ''; none.style.display = ''; return; }
+  none.style.display = 'none';
+  list.innerHTML = boxes.map((box, i) => {
+    const label = classes[box.class_id]?.name ?? `class_${box.class_id}`;
+    const color = classColor(box.class_id);
+    const icon  = (box.w === 0 && box.h === 0)
+      ? `<span style="width:12px;height:12px;display:inline-flex;align-items:center;justify-content:center;font-size:12px;color:${color}">✛</span>`
+      : `<span class="class-dot" style="background:${color}"></span>`;
+    return `<div class="box-item ${i === selectedBox ? 'selected-box' : ''}" onclick="selectBoxFromList(${i})">
+      ${icon}
+      <span style="font-size:12px">${label}</span>
+      <button class="box-del" onclick="event.stopPropagation();deleteBox(${i})">×</button>
+    </div>`;
+  }).join('');
+}
+
+function selectBoxFromList(i) {
+  selectedBox = i;
+  // 選択したボックスのクラスも切り替え
+  selectClass(boxes[i].class_id);
+  renderBoxList();
+  render();
+}
+
+function deleteBox(i) {
+  boxes.splice(i, 1);
+  if (selectedBox >= boxes.length) selectedBox = boxes.length - 1;
+  dirty = true;
+  renderBoxList();
+  render();
+}
+
+// ─── 画像読み込み ──────────────────────────────────────────────
+async function loadImage(idx, phase = null) {
+  if (idx < 0 || idx >= images.length) return;
+  if (dirty) await saveLabel(true); // 自動保存
+  currentIdx = idx;
+  // per-imageモードのフェーズ設定（引数 or デフォルト tray）
+  if (perImage) {
+    imagePhase = phase ?? 'tray';
+    classMode = imagePhase;
+  }
+  const img = images[idx];
+
+  document.getElementById('current-filename').textContent = img.filename;
+  document.getElementById('img-progress').textContent =
+    `${images.filter(i => i.has_label).length} / ${images.length} ラベル済み`;
+
+  // 画像リストのハイライト更新
+  document.querySelectorAll('.img-item').forEach((el, i) => el.classList.toggle('active', i === idx));
+  const listEl = document.querySelector(`.img-item:nth-child(${idx + 1})`);
+  if (listEl) listEl.scrollIntoView({ block: 'nearest' });
+
+  // 画像ロード
+  const token = localStorage.getItem('token');
+  canvas.style.display = 'none';
+  document.getElementById('canvas-placeholder').style.display = '';
+
+  imgEl = new Image();
+  imgEl.onload = async () => {
+    canvas.style.display = 'block';
+    document.getElementById('canvas-placeholder').style.display = 'none';
+    fitImage();
+
+    // 既存ラベルを読み込む
+    boxes = [];
+    selectedBox = -1;
+    try {
+      const labelData = await api('GET', `/admin/training/images/${img.id}/label`);
+      if (labelData?.boxes) {
+        boxes = labelData.boxes.map(b => ({ ...b, id: nextId++ }));
+      }
+    } catch { }
+
+    dirty = false;
+    renderBoxList();
+    render();
+    renderClassPanel();
+    if (perImage) updatePerImageUI(); else updateNavButtons();
+  };
+  imgEl.onerror = () => {
+    document.getElementById('canvas-placeholder').innerHTML =
+      '<div style="color:#f55">画像を読み込めませんでした</div>';
+  };
+  imgEl.src = `/api/admin/training/images/${img.id}/file?token=${token}`;
+}
+
+function updateNavButtons() {
+  if (!perImage) {
+    document.getElementById('prev-btn').disabled = currentIdx <= 0;
+    document.getElementById('next-btn').disabled = currentIdx >= images.length - 1;
+    return;
+  }
+  // per-imageモード
+  const isFirst = currentIdx <= 0 && imagePhase === 'tray';
+  const isLast  = currentIdx >= images.length - 1 && imagePhase === 'product';
+  document.getElementById('prev-btn').disabled = isFirst;
+  document.getElementById('next-btn').disabled = isLast;
+}
+
+function updatePerImageUI() {
+  if (!perImage) return;
+  const ind = document.getElementById('phase-indicator');
+  const tLbl = document.getElementById('phase-tray-lbl');
+  const pLbl = document.getElementById('phase-product-lbl');
+  const prevBtn = document.getElementById('prev-btn');
+  const nextBtn = document.getElementById('next-btn');
+
+  ind.style.display = 'flex';
+
+  if (imagePhase === 'tray') {
+    tLbl.className = 'phase-active-tray';
+    pLbl.className = 'phase-inactive';
+    prevBtn.textContent = '← 前の画像';
+    nextBtn.textContent = '📦 製品へ →';
+    nextBtn.className = 'btn btn-sm btn-success nav-btn';
+  } else {
+    tLbl.className = 'phase-inactive';
+    pLbl.className = 'phase-active-product';
+    prevBtn.textContent = '← トレイへ';
+    nextBtn.textContent = '次の画像 →';
+    nextBtn.className = 'btn btn-sm btn-primary nav-btn';
+  }
+  updateNavButtons();
+}
+
+function setImagePhase(phase) {
+  imagePhase = phase;
+  changeMode(phase);
+  updatePerImageUI();
+}
+
+async function handlePrev() {
+  if (!perImage) { await navigate(-1); return; }
+  if (imagePhase === 'product') {
+    setImagePhase('tray');
+  } else {
+    const prev = currentIdx - 1;
+    if (prev >= 0) { await loadImage(prev, 'product'); }
+  }
+}
+
+async function handleNext() {
+  if (!perImage) { await navigate(1); return; }
+  await saveLabel(true);
+  if (imagePhase === 'tray') {
+    setImagePhase('product');
+  } else {
+    const next = currentIdx + 1;
+    if (next < images.length) {
+      await loadImage(next, 'tray');
+    } else {
+      showToast('全画像のアノテーションが完了しました！', 'ok');
+    }
+  }
+}
+
+async function navigate(dir) {
+  const next = currentIdx + dir;
+  if (next < 0 || next >= images.length) return;
+  await loadImage(next);
+}
+
+// ─── 保存 ─────────────────────────────────────────────────────
+async function saveLabel(silent = false) {
+  if (currentIdx < 0) return;
+  const img = images[currentIdx];
+  try {
+    await api('POST', `/admin/training/images/${img.id}/label`, { boxes });
+    img.has_label = true;
+    dirty = false;
+    if (!silent) showToast('保存しました', 'ok');
+    document.getElementById('save-status').textContent = '保存済み ✓';
+    setTimeout(() => { document.getElementById('save-status').textContent = ''; }, 2000);
+    // 画像リストの状態を更新
+    renderImageList();
+  } catch (e) {
+    if (!silent) showToast('保存に失敗しました: ' + e.message, 'err');
+  }
+}
+
+// ─── 画像一覧 ─────────────────────────────────────────────────
+function renderImageList() {
+  const token = localStorage.getItem('token');
+  document.getElementById('img-items').innerHTML = images.map((img, i) => `
+    <div class="img-item ${i === currentIdx ? 'active' : ''} ${img.has_label ? 'done' : 'undone'}"
+         onclick="loadImage(${i})">
+      <img class="img-thumb-mini"
+           src="/api/admin/training/images/${img.id}/thumbnail?token=${token}"
+           onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2248%22 height=%2227%22><rect fill=%22%23333%22 width=%2248%22 height=%2227%22/><text x=%2224%22 y=%2218%22 text-anchor=%22middle%22 fill=%22%23666%22 font-size=%2211%22>?</text></svg>'"
+           >
+      <span class="img-name">${img.filename}</span>
+      <span class="img-badge">${img.has_label ? '✅' : '⬜'}</span>
+    </div>`).join('');
+
+  document.getElementById('img-progress').textContent =
+    `${images.filter(i => i.has_label).length} / ${images.length} ラベル済み`;
+}
+
+// ─── ガイド ───────────────────────────────────────────────────
+function showGuide() {
+  document.getElementById('guide-overlay').style.display = 'flex';
+}
+function hideGuide() {
+  document.getElementById('guide-overlay').style.display = 'none';
+  localStorage.setItem('ann_guide_seen', '1');
+}
+
+// ─── Toast ────────────────────────────────────────────────────
+function showToast(msg, type) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = type;
+  t.style.display = 'block';
+  clearTimeout(t._timer);
+  t._timer = setTimeout(() => { t.style.display = 'none'; }, 2500);
+}
+
+// ─── フォルダ切り替え ─────────────────────────────────────────
+let currentFolder = null;
+
+async function changeFolder(folder) {
+  currentFolder = folder || null;
+  // URL を更新（リロードなし）
+  const url = new URL(window.location.href);
+  if (currentFolder) url.searchParams.set('folder', currentFolder);
+  else url.searchParams.delete('folder');
+  history.replaceState(null, '', url.toString());
+
+  // 画像リストを再読み込み
+  const param = currentFolder ? `?folder=${encodeURIComponent(currentFolder)}` : '';
+  images = await api('GET', '/admin/training/images' + param) || [];
+  currentIdx = -1;
+  boxes = [];
+  imgEl = null;
+  canvas.style.display = 'none';
+  document.getElementById('canvas-placeholder').style.display = '';
+  document.getElementById('current-filename').textContent = '';
+
+  renderImageList();
+  if (images.length > 0) {
+    const firstUndone = images.findIndex(i => !i.has_label);
+    await loadImage(firstUndone >= 0 ? firstUndone : 0);
+  }
+}
+
+// ─── 初期化 ───────────────────────────────────────────────────
+async function init() {
+  if (!localStorage.getItem('token')) { window.location.href = '/admin/login'; return; }
+
+  // URL パラメータからフォルダ・モードを取得
+  const urlParams = new URLSearchParams(window.location.search);
+  currentFolder = urlParams.get('folder') || null;
+  const modeParam = urlParams.get('mode') || 'all';
+
+  if (modeParam === 'per-image') {
+    perImage = true;
+    imagePhase = 'tray';
+    classMode = 'tray';
+    document.getElementById('mode-select').value = 'tray';
+    document.getElementById('mode-wrapper').style.display = 'none';
+    document.getElementById('phase-indicator').style.display = 'flex';
+  } else {
+    classMode = modeParam;
+    document.getElementById('mode-select').value = classMode;
+  }
+
+  // フォルダ一覧を取得してセレクタに反映
+  const classUrl = currentFolder
+    ? `/admin/training/classes?folder=${encodeURIComponent(currentFolder)}`
+    : '/admin/training/classes';
+  const [folders, cls] = await Promise.all([
+    api('GET', '/admin/training/folders'),
+    api('GET', classUrl),
+  ]);
+  classes = cls || [];
+
+  const sel = document.getElementById('folder-select');
+  (folders || []).forEach(f => {
+    const opt = document.createElement('option');
+    opt.value = f.barcode_name;
+    opt.textContent = `${f.barcode_name} (${f.total}枚)`;
+    sel.appendChild(opt);
+  });
+  if (currentFolder) sel.value = currentFolder;
+
+  // フォルダでフィルタして画像読み込み
+  const param = currentFolder ? `?folder=${encodeURIComponent(currentFolder)}` : '';
+  images = await api('GET', '/admin/training/images' + param) || [];
+
+  renderClassPanel();
+  renderImageList();
+
+  if (images.length > 0) {
+    const firstUndone = images.findIndex(i => !i.has_label);
+    await loadImage(firstUndone >= 0 ? firstUndone : 0);
+  }
+
+  if (perImage) updatePerImageUI();
+  if (!localStorage.getItem('ann_guide_seen')) showGuide();
+}
+
+// ガイドオーバーレイのクリック（背景）で閉じる
+document.getElementById('guide-overlay').addEventListener('click', e => {
+  if (e.target === document.getElementById('guide-overlay')) hideGuide();
+});
+
+init();
+</script>
+</body>
+</html>

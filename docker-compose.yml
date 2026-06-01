@@ -1,0 +1,70 @@
+services:
+  api:
+    build: ./app
+    ports:
+      - "8000:8000"
+    environment:
+      DB_HOST: db
+      DB_PORT: 3306
+      DB_NAME: ${DB_NAME}
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      UPLOAD_DIR: /uploads
+      YOLO_MODEL_DIR: /yolo_models
+      TRAINING_DIR: /training_data
+      SECRET_KEY: ${SECRET_KEY:-change-me-in-production}
+      HOST_IP: ${HOST_IP:-192.168.11.3}
+      YOLO_IMGSZ: 1280
+      YOLO_PRODUCT_IMGSZ: 1280
+      YOLO_INFER_MIN_CONF: 0.005
+      YOLO_SLOT_MIN_CONF: 0.001
+      YOLO_ANCHOR_CONF: 0.35
+      YOLO_GATE_CONF_FACTOR: 0.02
+      YOLO_UNIFORM_GATE_MAX_CONF: 0.50
+      YOLO_UNIFORM_GATE_MAX_STD: 0.03
+      YOLO_UNIFORM_GATE_MIN_DET: 3
+      YOLO_CLASS_CHECK: 0
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./app:/app
+      - ./frontend:/frontend:ro
+      - uploads:/uploads
+      - yolo_models:/yolo_models
+      - training_data:/training_data
+      - certs:/certs
+    restart: unless-stopped
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    command: tunnel --protocol http2 --url http://api:8000
+    depends_on:
+      - api
+    restart: unless-stopped
+
+  db:
+    image: mysql:8.0
+    ports:
+      - "3307:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${DB_NAME}
+      MYSQL_USER: ${DB_USER}
+      MYSQL_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./init:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${DB_ROOT_PASSWORD}"]
+      interval: 5s
+      timeout: 10s
+      retries: 15
+    restart: unless-stopped
+
+volumes:
+  mysql_data:
+  uploads:
+  yolo_models:
+  training_data:
+  certs:

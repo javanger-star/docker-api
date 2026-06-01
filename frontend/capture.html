@@ -1,0 +1,724 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>撮影</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#000;color:#fff;font-family:sans-serif;height:100dvh;display:flex;flex-direction:column;overflow:hidden}
+
+/* ── 確認画面 ── */
+#confirm-screen{
+  position:fixed;inset:0;background:#111;z-index:300;
+  display:flex;flex-direction:column;align-items:stretch;
+}
+#confirm-header{
+  padding:10px 16px;background:#000;flex-shrink:0;text-align:center;
+}
+#confirm-bc-info{font-size:11px;color:#888;margin-bottom:2px}
+#confirm-heading{font-size:15px;font-weight:bold;color:#fff}
+#confirm-img-wrap{
+  flex:1;min-height:0;display:flex;align-items:center;justify-content:center;
+  background:#000;overflow:hidden;position:relative;
+}
+#confirm-img{max-width:100%;max-height:100%;object-fit:contain;display:none}
+#confirm-no-img{
+  color:#666;text-align:center;font-size:13px;line-height:1.8;padding:24px;display:none
+}
+#confirm-spinner{
+  width:36px;height:36px;border:4px solid #333;border-top-color:#007bff;
+  border-radius:50%;animation:spin .8s linear infinite;
+}
+#confirm-footer{
+  padding:12px 16px 20px;background:#000;flex-shrink:0;
+}
+#confirm-note{font-size:11px;color:#888;text-align:center;margin-bottom:10px}
+#confirm-ok-btn{
+  width:100%;padding:15px;background:#007bff;border:none;color:#fff;
+  border-radius:28px;font-size:17px;font-weight:bold;cursor:pointer;
+}
+#confirm-ok-btn:active{background:#0056b3}
+
+/* ── カメラ画面 ── */
+#camera-screen{
+  display:none;flex-direction:column;
+  width:100%;height:100dvh;
+  background:#000;overflow:hidden;
+}
+
+/* カメラ映像エリア: 残り全高を占める */
+#cam-wrap{position:relative;flex:1;min-height:0;overflow:hidden;background:#000}
+#video{width:100%;height:100%;object-fit:cover;display:block}
+
+/* ガイド枠: 縦持ち・横持ちとも常に 16:9 横向き矩形
+   縦持ち → 幅基準 (width:94%)、横持ち → 高さ基準 (height:90%) でオーバーライド */
+#guide-overlay{
+  position:absolute;top:50%;left:50%;
+  transform:translate(-50%,-50%);
+  width:94%;aspect-ratio:16/9;max-height:80%;
+  border:2px solid rgba(255,255,255,.75);
+  pointer-events:none;
+}
+#guide-overlay::before{
+  content:'';position:absolute;top:-3px;left:-3px;
+  width:20px;height:20px;
+  border:3px solid #fff;border-right:none;border-bottom:none
+}
+#guide-overlay::after{
+  content:'';position:absolute;bottom:-3px;right:-3px;
+  width:20px;height:20px;
+  border:3px solid #fff;border-left:none;border-top:none
+}
+
+#bc-info{
+  position:absolute;top:6px;left:0;right:0;
+  text-align:center;font-size:11px;color:#fff;
+  text-shadow:0 1px 3px #000;padding:2px;
+}
+
+/* コントロールバー: 固定高さ、縦に詰める */
+#cam-controls{
+  flex-shrink:0;background:#111;
+  padding:6px 16px 8px;
+  display:flex;flex-direction:column;gap:6px;
+}
+#zoom-row{display:flex;align-items:center;gap:8px;font-size:12px;color:#ccc}
+#zoom{flex:1;accent-color:#007bff;height:18px}
+#zoom-val{min-width:30px;text-align:right;font-size:12px}
+
+#btn-row{
+  display:flex;justify-content:center;align-items:center;gap:20px;
+}
+.ctrl-btn{
+  background:#2a2a2a;border:1px solid #444;color:#fff;
+  border-radius:50%;width:46px;height:46px;font-size:22px;
+  cursor:pointer;display:flex;align-items:center;justify-content:center;
+  flex-shrink:0;
+}
+.ctrl-btn:active{background:#444}
+#capture-btn{
+  width:60px;height:60px;background:#fff;border:4px solid #888;
+  border-radius:50%;cursor:pointer;flex-shrink:0;
+}
+#capture-btn:active{background:#ccc}
+#end-btn{
+  background:none;border:none;color:#666;
+  font-size:12px;cursor:pointer;text-align:center;padding:0;
+}
+#end-btn:active{color:#aaa}
+
+/* ── 横向き: コントロールを右サイドバーに移す ──
+   CSS media query + JS (.is-landscape クラス) の二重保険で確実に適用 */
+@media (orientation:landscape){
+  #camera-screen{flex-direction:row}
+  #cam-wrap{flex:1;min-width:0}
+  #guide-overlay{width:auto;height:90%;max-height:none;max-width:96%}
+  #cam-controls{width:80px;flex-shrink:0;flex-direction:column;padding:10px 6px;gap:10px;justify-content:center;align-items:center}
+  #zoom-row{flex-direction:column-reverse;align-items:center;gap:4px;width:100%}
+  #zoom{writing-mode:vertical-lr;direction:rtl;height:60px;width:18px;flex:none}
+  #zoom-val{min-width:auto;text-align:center;font-size:11px}
+  #btn-row{flex-direction:column;gap:10px;align-items:center}
+  .ctrl-btn{width:40px;height:40px;font-size:20px}
+  #capture-btn{width:54px;height:54px}
+  #end-btn{font-size:10px;line-height:1.4}
+}
+/* JS クラスによるフォールバック（media query が反応しない環境向け） */
+#camera-screen.is-landscape{flex-direction:row}
+#camera-screen.is-landscape #cam-wrap{flex:1;min-width:0}
+#camera-screen.is-landscape #guide-overlay{width:auto;height:90%;max-height:none;max-width:96%}
+#camera-screen.is-landscape #cam-controls{width:80px;flex-shrink:0;flex-direction:column;padding:10px 6px;gap:10px;justify-content:center;align-items:center}
+#camera-screen.is-landscape #zoom-row{flex-direction:column-reverse;align-items:center;gap:4px;width:100%}
+#camera-screen.is-landscape #zoom{writing-mode:vertical-lr;direction:rtl;height:60px;width:18px;flex:none}
+#camera-screen.is-landscape #zoom-val{min-width:auto;text-align:center;font-size:11px}
+#camera-screen.is-landscape #btn-row{flex-direction:column;gap:10px;align-items:center}
+#camera-screen.is-landscape .ctrl-btn{width:40px;height:40px;font-size:20px}
+#camera-screen.is-landscape #capture-btn{width:54px;height:54px}
+#camera-screen.is-landscape #end-btn{font-size:10px;line-height:1.4}
+
+/* ── 結果オーバーレイ ── */
+#result-overlay{
+  display:none;position:fixed;inset:0;
+  background:#000;z-index:100;
+  flex-direction:column;
+}
+/* 画像エリア: 縦横ともに残り全体を占め、canvasを中央に表示 */
+#result-img-area{
+  flex:1;min-height:0;min-width:0;
+  display:flex;align-items:center;justify-content:center;
+  overflow:hidden;touch-action:none;background:#000;
+}
+#result-img-wrap{
+  /* ピンチズーム用 transform をここに適用 */
+  transform-origin:0 0;will-change:transform;
+  display:flex;align-items:center;justify-content:center;
+  width:100%;height:100%;
+}
+/* canvas が画像＋枠を兼ねる
+   max-width/max-height でアスペクト比を保ちながら親に収まる */
+#result-canvas{
+  display:block;
+  max-width:100%;
+  max-height:100%;
+}
+/* 情報パネル */
+#result-info{
+  flex-shrink:0;padding:8px 12px 12px;
+  background:#111;overflow-y:auto;
+}
+#result-msg{font-size:13px;margin-bottom:6px;text-align:center;color:#ddd}
+.legend{display:flex;gap:12px;justify-content:center;font-size:12px;margin-bottom:6px;flex-wrap:wrap}
+.legend span{display:flex;align-items:center;gap:4px}
+.dot{width:11px;height:11px;border-radius:50%;display:inline-block}
+#result-close{display:block;margin:4px auto 0;padding:9px 28px;background:#007bff;border:none;color:#fff;border-radius:20px;font-size:14px;cursor:pointer}
+
+/* 横向き: 左に画像・右に情報パネルの2カラム */
+@media (orientation:landscape){
+  #result-overlay{flex-direction:row}
+  #result-info{width:190px;flex-shrink:0}
+}
+
+/* ── 再撮影バナー ── */
+#retake-banner{display:none;background:#c00;border-radius:10px;padding:12px 14px;margin-bottom:10px;width:100%}
+#retake-banner .retake-title{font-size:16px;font-weight:bold;margin-bottom:6px}
+#retake-banner .retake-reason{font-size:12px;line-height:1.6;margin-bottom:10px;opacity:.92}
+#retake-btn{width:100%;padding:11px;background:#fff;color:#c00;border:none;border-radius:20px;font-size:15px;font-weight:bold;cursor:pointer;margin-bottom:6px}
+#retake-ignore{display:block;text-align:center;font-size:12px;color:rgba(255,255,255,.7);cursor:pointer;text-decoration:underline;margin-bottom:4px}
+
+
+/* ── 縦持ち警告 ── */
+#portrait-hint{
+  display:none;position:absolute;inset:0;background:rgba(0,0,0,.82);z-index:20;
+  flex-direction:column;align-items:center;justify-content:center;gap:14px;
+  color:#fff;text-align:center;pointer-events:none;
+}
+#portrait-hint .ph-icon{font-size:52px;animation:ph-spin 1.8s ease-in-out infinite alternate}
+@keyframes ph-spin{from{transform:rotate(-20deg)}to{transform:rotate(20deg)}}
+#portrait-hint .ph-msg{font-size:18px;font-weight:bold}
+#portrait-hint .ph-sub{font-size:13px;color:#ccc;line-height:1.6}
+
+/* ── カメラ未起動状態 ── */
+#cam-inactive{
+  position:absolute;inset:0;background:#111;display:flex;flex-direction:column;
+  align-items:center;justify-content:center;gap:14px;z-index:10;
+}
+#cam-inactive-msg{font-size:13px;color:#aaa;text-align:center;line-height:1.7;padding:0 16px}
+#start-cam-btn{
+  padding:12px 32px;background:#007bff;border:none;color:#fff;
+  border-radius:28px;font-size:16px;font-weight:bold;cursor:pointer;
+}
+#start-cam-btn:active{background:#0056b3}
+
+/* ── ローディング ── */
+#loading{display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:200;align-items:center;justify-content:center;flex-direction:column;gap:12px;font-size:18px}
+.spinner{width:48px;height:48px;border:5px solid #333;border-top-color:#007bff;border-radius:50%;animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+
+<!-- ── 確認画面 ── -->
+<div id="confirm-screen">
+  <div id="confirm-header">
+    <div id="confirm-bc-info"></div>
+    <div id="confirm-heading">撮影前に確認してください</div>
+  </div>
+  <div id="confirm-img-wrap">
+    <img id="confirm-img" alt="参考画像">
+    <div id="confirm-no-img">参考画像が登録されていません。<br>正しい状態を確認してから撮影してください。</div>
+    <div id="confirm-spinner"></div>
+  </div>
+  <div id="confirm-footer">
+    <div id="confirm-note">↑ この状態を参考に撮影してください</div>
+    <button id="confirm-ok-btn">📸 OK - 撮影開始</button>
+  </div>
+</div>
+
+<!-- ── カメラ画面 ── -->
+<div id="camera-screen">
+  <!-- 映像エリア -->
+  <div id="cam-wrap">
+    <video id="video" autoplay playsinline muted></video>
+    <div id="guide-overlay"></div>
+    <div id="bc-info"></div>
+    <div id="portrait-hint">
+      <div class="ph-icon">📱</div>
+      <div class="ph-msg">横向きで撮影してください</div>
+      <div class="ph-sub">端末を横向きに回転させるか<br>下の「横固定」ボタンを押してください</div>
+    </div>
+    <div id="cam-inactive">
+      <div style="font-size:44px">📷</div>
+      <div id="cam-inactive-msg">カメラが停止しています</div>
+      <button id="start-cam-btn">カメラを起動する</button>
+    </div>
+  </div>
+  <!-- コントロールバー -->
+  <div id="cam-controls">
+    <div id="zoom-row">
+      <span>🔍</span>
+      <input id="zoom" type="range" min="1" max="5" step="0.1" value="1">
+      <span id="zoom-val">×1.0</span>
+    </div>
+    <div id="btn-row">
+      <button class="ctrl-btn" id="torch-btn">💡</button>
+      <button id="capture-btn"></button>
+      <button class="ctrl-btn" id="flip-btn">🔄</button>
+      <button class="ctrl-btn" id="rotate-btn" title="横固定">⟳</button>
+    </div>
+    <button id="end-btn">終了してスキャンに戻る</button>
+  </div>
+</div>
+
+<!-- ── 結果オーバーレイ ── -->
+<div id="result-overlay">
+  <div id="result-img-area">
+    <div id="result-img-wrap">
+      <canvas id="result-canvas"></canvas>
+    </div>
+  </div>
+  <div id="result-info">
+    <div id="retake-banner">
+      <div class="retake-title">⚠️ 再撮影が必要です</div>
+      <div class="retake-reason" id="retake-reason-text"></div>
+      <button id="retake-btn">📸 再撮影する</button>
+      <span id="retake-ignore">このまま結果を確認する</span>
+    </div>
+    <div id="result-msg"></div>
+    <div class="legend">
+      <span><span class="dot" style="background:green"></span>正常</span>
+      <span><span class="dot" style="background:red"></span>欠品</span>
+      <span><span class="dot" style="background:yellow"></span>位置ずれ</span>
+      <span><span class="dot" style="background:#4af"></span>余分</span>
+    </div>
+    <button id="result-close">閉じて続ける</button>
+  </div>
+</div>
+
+<div id="loading"><div class="spinner"></div>処理中...</div>
+
+<script>
+const barcodeValue = sessionStorage.getItem('barcodeValue');
+const barcodeName  = sessionStorage.getItem('barcodeName');
+if (!barcodeValue) { window.location.href = '/'; }
+
+let stream = null, track = null, torchOn = false;
+let cameras = [];        // 権限取得後に列挙したカメラ一覧
+let camIdx  = 0;         // 現在使用中カメラのインデックス
+let facingFallback = 'environment'; // cameras が空のときのフォールバック
+
+// ── 確認画面の初期化 ─────────────────────────────────────────
+document.getElementById('confirm-bc-info').textContent =
+  barcodeValue + (barcodeName ? ' / ' + barcodeName : '');
+
+async function loadReferenceImage() {
+  const spinner = document.getElementById('confirm-spinner');
+  const imgEl   = document.getElementById('confirm-img');
+  const noImg   = document.getElementById('confirm-no-img');
+  try {
+    const res = await fetch('/api/capture/reference/' + encodeURIComponent(barcodeValue) + '?t=' + Date.now());
+    spinner.style.display = 'none';
+    if (res.ok) {
+      const blob = await res.blob();
+      imgEl.src = URL.createObjectURL(blob);
+      imgEl.style.display = 'block';
+    } else {
+      noImg.style.display = 'block';
+    }
+  } catch (e) {
+    spinner.style.display = 'none';
+    noImg.style.display = 'block';
+  }
+}
+
+document.getElementById('confirm-ok-btn').addEventListener('click', async () => {
+  document.getElementById('confirm-screen').style.display = 'none';
+  document.getElementById('camera-screen').style.display = 'flex';
+  _camScreenActive = true;
+  _applyOrientation();
+  await startCamera();
+});
+
+// ── カメラ ───────────────────────────────────────────────────
+document.getElementById('bc-info').textContent =
+  barcodeValue + (barcodeName ? ' / ' + barcodeName : '');
+
+function showCamInactive(msg) {
+  document.getElementById('cam-inactive-msg').innerHTML = msg;
+  document.getElementById('cam-inactive').style.display = 'flex';
+}
+
+function hideCamInactive() {
+  document.getElementById('cam-inactive').style.display = 'none';
+}
+
+async function startCamera() {
+  if (stream) stream.getTracks().forEach(t => t.stop());
+  hideCamInactive();
+
+  // カメラ一覧取得済みなら deviceId で確実に指定、未取得なら facingMode で試行
+  const byDeviceId = cameras.length > 0;
+
+  const makeConstraints = (extraVideo = {}) => {
+    if (byDeviceId) {
+      const devId = cameras[camIdx % cameras.length].deviceId;
+      return { video: { deviceId: { exact: devId }, ...extraVideo } };
+    }
+    return { video: { facingMode: { ideal: facingFallback }, ...extraVideo } };
+  };
+
+  try {
+    try {
+      stream = await navigator.mediaDevices.getUserMedia(
+        makeConstraints({ width: { ideal: 1280 }, height: { ideal: 720 } })
+      );
+    } catch (_) {
+      stream = await navigator.mediaDevices.getUserMedia(makeConstraints());
+    }
+  } catch (err) {
+    let msg = 'カメラを起動できませんでした。<br><small>' + err.message + '</small>';
+    if (err.name === 'NotAllowedError') {
+      msg = 'カメラの許可が必要です。<br>ブラウザの設定でカメラを許可してください。';
+    } else if (err.name === 'NotFoundError') {
+      msg = 'カメラが見つかりません。';
+    } else if (location.protocol === 'http:' && !location.hostname.match(/^(localhost|127\.|::1)/)) {
+      msg = 'HTTPではカメラを使用できません。<br>HTTPSのURLでアクセスしてください。';
+    }
+    showCamInactive(msg);
+    return;
+  }
+
+  // 権限取得後にカメラ一覧を更新し、現在のカメラ位置を特定
+  if (!byDeviceId) {
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      cameras = devices.filter(d => d.kind === 'videoinput');
+      const curDevId = stream.getVideoTracks()[0].getSettings().deviceId;
+      const found = cameras.findIndex(c => c.deviceId === curDevId);
+      camIdx = found !== -1 ? found : 0;
+    } catch (_) {}
+  }
+
+  const video = document.getElementById('video');
+  video.srcObject = stream;
+  track = stream.getVideoTracks()[0];
+  torchOn = false;
+  document.getElementById('torch-btn').style.color = '#fff';
+
+  const caps = track.getCapabilities?.() || {};
+  const zoomEl = document.getElementById('zoom');
+  if (caps.zoom) {
+    zoomEl.min = caps.zoom.min; zoomEl.max = caps.zoom.max;
+    zoomEl.step = caps.zoom.step || 0.1; zoomEl.value = caps.zoom.min;
+    document.getElementById('zoom-val').textContent = '×' + parseFloat(zoomEl.value).toFixed(1);
+  }
+}
+
+document.getElementById('start-cam-btn').addEventListener('click', startCamera);
+
+document.getElementById('zoom').addEventListener('input', async e => {
+  const v = parseFloat(e.target.value);
+  document.getElementById('zoom-val').textContent = '×' + v.toFixed(1);
+  if (track?.getCapabilities?.()?.zoom) {
+    await track.applyConstraints({ advanced: [{ zoom: v }] });
+  }
+});
+
+document.getElementById('torch-btn').addEventListener('click', async () => {
+  if (!track) return;
+  const caps = track.getCapabilities?.() || {};
+  if (caps.torch) {
+    torchOn = !torchOn;
+    await track.applyConstraints({ advanced: [{ torch: torchOn }] });
+    document.getElementById('torch-btn').style.color = torchOn ? '#ff0' : '#fff';
+  } else {
+    alert('このカメラはライトに対応していません');
+  }
+});
+
+document.getElementById('flip-btn').addEventListener('click', async () => {
+  if (cameras.length > 1) {
+    // deviceId ベースで次のカメラへ
+    camIdx = (camIdx + 1) % cameras.length;
+  } else {
+    // カメラ一覧が取れていない場合は facingMode で切り替え
+    facingFallback = facingFallback === 'environment' ? 'user' : 'environment';
+    cameras = [];
+    camIdx  = 0;
+  }
+  await startCamera();
+});
+
+// ── 撮影・送信 ───────────────────────────────────────────────
+let _capturing = false;
+document.getElementById('capture-btn').addEventListener('click', captureAndSend);
+
+async function captureAndSend() {
+  if (_capturing) return;
+  // stream が無効なら再起動を促す
+  if (!stream || !stream.getVideoTracks().some(t => t.readyState === 'live')) {
+    showCamInactive('カメラが停止しています。下のボタンから再起動してください。');
+    return;
+  }
+  _capturing = true;
+  const loadingEl = document.getElementById('loading');
+  loadingEl.style.display = 'flex';
+
+  try {
+    const video = document.getElementById('video');
+    const vw = video.videoWidth  || 1280;
+    const vh = video.videoHeight || 720;
+
+    // 縦向き動画（vh > vw）を横向きに回転してからサーバーへ送る。
+    // モデルは横向き画像で学習済みのため、縦向きのまま送ると検出精度が極端に落ちる。
+    // 回転後の画像をそのまま保存するため、結果表示の座標系も横向きで統一される。
+    const canvas = document.createElement('canvas');
+    if (vh > vw) {
+      // 縦向き → 横向き（時計回り90°）
+      canvas.width  = vh;
+      canvas.height = vw;
+      const ctx = canvas.getContext('2d');
+      ctx.translate(vh / 2, vw / 2);
+      ctx.rotate(Math.PI / 2);
+      ctx.drawImage(video, -vw / 2, -vh / 2, vw, vh);
+    } else {
+      canvas.width  = vw;
+      canvas.height = vh;
+      canvas.getContext('2d').drawImage(video, 0, 0, vw, vh);
+    }
+
+    const blob = await new Promise(resolve =>
+      canvas.toBlob(resolve, 'image/jpeg', 0.92)
+    );
+    if (!blob) throw new Error('画像の生成に失敗しました');
+
+    const fd = new FormData();
+    fd.append('barcode_value', barcodeValue);
+    fd.append('file', blob, 'capture.jpg');
+    fd.append('capture_w', String(vw));
+    fd.append('capture_h', String(vh));
+
+    const res = await fetch('/api/capture/', { method: 'POST', body: fd });
+    if (!res.ok) throw new Error(await res.text());
+    const data = await res.json();
+    loadingEl.style.display = 'none';
+    showResult(data);
+  } catch (e) {
+    loadingEl.style.display = 'none';
+    alert('送信に失敗しました: ' + e.message);
+  } finally {
+    _capturing = false;
+  }
+}
+
+// ── 結果表示 ─────────────────────────────────────────────────
+function showResult(data) {
+  const overlay = document.getElementById('result-overlay');
+  overlay.style.display = 'flex';
+
+  const dr = data.detection_result || {};
+  const retakeNeeded = dr.retake_needed === true;
+  const banner = document.getElementById('retake-banner');
+  const resultClose = document.getElementById('result-close');
+  if (retakeNeeded) {
+    banner.style.display = 'block';
+    document.getElementById('retake-reason-text').innerHTML =
+      (dr.retake_reasons || []).map(r => '・' + r).join('<br>');
+    resultClose.style.display = 'none';
+  } else {
+    banner.style.display = 'none';
+    resultClose.style.display = 'block';
+  }
+
+  const boxes = dr.boxes || [];
+  const c = { green: 0, red: 0, yellow: 0 };
+  boxes.forEach(b => { c[b.color] = (c[b.color] || 0) + 1; });
+  let msg = `正常 ${c.green} / 欠品 ${c.red} / ずれ ${c.yellow}`;
+  if (!boxes.length && dr.error) msg = dr.error;
+  else if (!boxes.length && data.detection_result) msg = '検知結果なし';
+  else if (!data.detection_result) msg = 'YOLOモデル未設定';
+  // デバッグ情報（画像サイズ・検出数・スロット数）
+  const parts = [];
+  if (dr.image_size) parts.push(dr.image_size);
+  if (dr.item_count != null) parts.push(`検出${dr.item_count}`);
+  if (dr.slot_count != null) parts.push(`枠${dr.slot_count}`);
+  const dbg = parts.length ? ` [${parts.join(' ')}]` : '';
+  document.getElementById('result-msg').textContent = msg + dbg;
+
+  // 画像をロードしてcanvasに描画（imgタグ不要）
+  const img = new Image();
+  img.onload = () => drawResult(img, boxes);
+  img.src = '/api/capture/image/' + data.id + '?' + Date.now();
+}
+
+function drawResult(img, boxes) {
+  const canvas = document.getElementById('result-canvas');
+  canvas.width  = img.naturalWidth;
+  canvas.height = img.naturalHeight;
+  const ctx = canvas.getContext('2d');
+  // 画像を描画
+  ctx.drawImage(img, 0, 0);
+  // 枠を描画（座標はcanvasピクセル空間なので完全一致）
+  const lw = Math.max(3, canvas.width * 0.003);
+  const fs = Math.max(14, canvas.width * 0.016);
+  ctx.lineWidth = lw;
+  ctx.font = `bold ${fs}px sans-serif`;
+  boxes.forEach(box => {
+    const x = (box.cx - box.w / 2) * canvas.width;
+    const y = (box.cy - box.h / 2) * canvas.height;
+    const w = box.w * canvas.width;
+    const h = box.h * canvas.height;
+    ctx.strokeStyle = box.color;
+    ctx.strokeRect(x, y, w, h);
+    // ラベル背景
+    ctx.fillStyle = box.color;
+    ctx.fillRect(x, y - fs - 4, ctx.measureText(box.class_name).width + 8, fs + 4);
+    ctx.fillStyle = '#000';
+    ctx.fillText(box.class_name, x + 4, y - 4);
+  });
+}
+
+function closeResult() {
+  document.getElementById('result-overlay').style.display = 'none';
+  const canvas = document.getElementById('result-canvas');
+  canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
+  canvas.width = 0; canvas.height = 0;
+  document.getElementById('retake-banner').style.display = 'none';
+  document.getElementById('result-close').style.display = 'block';
+  _pz.scale = 1; _pz.tx = 0; _pz.ty = 0;
+  document.getElementById('result-img-wrap').style.transform = '';
+}
+
+document.getElementById('result-close').addEventListener('click', closeResult);
+document.getElementById('retake-btn').addEventListener('click', closeResult);
+document.getElementById('retake-ignore').addEventListener('click', () => {
+  document.getElementById('retake-banner').style.display = 'none';
+  document.getElementById('result-close').style.display = 'block';
+});
+
+document.getElementById('end-btn').addEventListener('click', () => {
+  if (confirm('終了してバーコードスキャンに戻りますか？')) {
+    _camScreenActive = false;
+    if (stream) stream.getTracks().forEach(t => t.stop());
+    window.location.href = '/';
+  }
+});
+
+// ── 向き判定・カメラ再起動 ────────────────────────────────────
+let _camScreenActive = false;
+let _restartTimer = null;
+let _manualLandscape = false;  // 手動横固定フラグ
+
+const _mqLandscape = window.matchMedia('(orientation: landscape)');
+
+// 複数ソースで横向きを判定（Android Chrome での matchMedia 遅延対策）
+function _isLandscape() {
+  if (_manualLandscape) return true;
+  if (_mqLandscape.matches) return true;
+  // screen.orientation が利用可能な場合はその angle も確認
+  if (typeof screen.orientation !== 'undefined') {
+    const a = screen.orientation.angle;
+    if (a === 90 || a === 270) return true;
+  }
+  // 最終フォールバック: ビューポートサイズ
+  return window.innerWidth > window.innerHeight;
+}
+
+function _applyOrientation() {
+  const isLs = _isLandscape();
+  document.getElementById('camera-screen').classList.toggle('is-landscape', isLs);
+  document.getElementById('video').style.objectFit = isLs ? 'cover' : 'contain';
+  // 縦持ち警告の表示／非表示（カメラ画面が表示中のみ）
+  const hint = document.getElementById('portrait-hint');
+  hint.style.display = (_camScreenActive && !isLs) ? 'flex' : 'none';
+  // 手動固定ボタンのラベル切り替え
+  const btn = document.getElementById('rotate-btn');
+  btn.textContent = _manualLandscape ? '↕縦' : '⟳横';
+  btn.style.color  = _manualLandscape ? '#f90' : '#fff';
+}
+
+function _scheduleRestart() {
+  if (!_camScreenActive) return;
+  _applyOrientation();
+  clearTimeout(_restartTimer);
+  _restartTimer = setTimeout(() => startCamera(), 500);
+}
+
+// matchMedia change（iOS で最も信頼性が高い）
+_mqLandscape.addEventListener('change', () => setTimeout(_scheduleRestart, 200));
+// screen.orientation change（Android Chrome で補完）
+if (typeof screen.orientation !== 'undefined') {
+  screen.orientation.addEventListener('change', () => setTimeout(_scheduleRestart, 200));
+}
+// resize（上記が発火しない環境のフォールバック）
+window.addEventListener('resize', () => {
+  _applyOrientation();
+  // resize のみで change が来ない場合にもカメラ再起動を促す
+  if (_camScreenActive) {
+    clearTimeout(_restartTimer);
+    _restartTimer = setTimeout(() => startCamera(), 600);
+  }
+});
+
+// 手動横固定ボタン
+document.getElementById('rotate-btn').addEventListener('click', () => {
+  _manualLandscape = !_manualLandscape;
+  _applyOrientation();
+  // レイアウト切り替え後にカメラ再起動（解像度を更新）
+  if (_camScreenActive) {
+    clearTimeout(_restartTimer);
+    _restartTimer = setTimeout(() => startCamera(), 300);
+  }
+});
+
+// ── ピンチズーム ─────────────────────────────────────────────
+let _pz = { scale: 1, tx: 0, ty: 0, startDist: 0, startScale: 1, panStart: null };
+
+function _applyTransform() {
+  document.getElementById('result-img-wrap').style.transform =
+    `translate(${_pz.tx}px,${_pz.ty}px) scale(${_pz.scale})`;
+}
+
+function _pinchDist(touches) {
+  const dx = touches[0].clientX - touches[1].clientX;
+  const dy = touches[0].clientY - touches[1].clientY;
+  return Math.hypot(dx, dy);
+}
+
+const _pzArea = document.getElementById('result-img-area');
+
+_pzArea.addEventListener('touchstart', e => {
+  if (e.touches.length === 2) {
+    e.preventDefault();
+    _pz.startDist  = _pinchDist(e.touches);
+    _pz.startScale = _pz.scale;
+    _pz.panStart   = null;
+  } else if (e.touches.length === 1 && _pz.scale > 1) {
+    _pz.panStart = { x: e.touches[0].clientX - _pz.tx, y: e.touches[0].clientY - _pz.ty };
+  }
+}, { passive: false });
+
+_pzArea.addEventListener('touchmove', e => {
+  if (e.touches.length === 2) {
+    e.preventDefault();
+    _pz.scale = Math.min(5, Math.max(1, _pz.startScale * (_pinchDist(e.touches) / _pz.startDist)));
+    if (_pz.scale === 1) { _pz.tx = 0; _pz.ty = 0; }
+    _applyTransform();
+  } else if (e.touches.length === 1 && _pz.panStart) {
+    e.preventDefault();
+    _pz.tx = e.touches[0].clientX - _pz.panStart.x;
+    _pz.ty = e.touches[0].clientY - _pz.panStart.y;
+    _applyTransform();
+  }
+}, { passive: false });
+
+_pzArea.addEventListener('touchend', () => {
+  if (_pz.scale <= 1) { _pz.scale = 1; _pz.tx = 0; _pz.ty = 0; _applyTransform(); }
+  _pz.panStart = null;
+});
+
+// ── 起動 ─────────────────────────────────────────────────────
+_applyOrientation();
+loadReferenceImage();
+</script>
+</body>
+</html>
