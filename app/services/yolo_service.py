@@ -580,21 +580,11 @@ def _align_layout_to_detections(slots: List[_Slot], dets: List[_Det]) -> List[_S
             src_pts.append([sl.center_x, sl.center_y])
             dst_pts.append([det.center_x, det.center_y])
 
-    # クラス名一致ペアが不十分な場合は近傍マッチにフォールバック
-    # クラス名体系が異なる場合（CLASS_CHECK無効時など）でも位置補正を可能にする
-    if len(src_pts) < 2 and dets_for_align:
-        logger.info("align: class-match %d pairs → nearest-neighbor fallback", len(src_pts))
-        src_pts, dst_pts = [], []
-        used_nn: set = set()
-        for sl in slots:
-            cands = [d for d in dets_for_align if id(d) not in used_nn]
-            if not cands:
-                break
-            det = min(cands, key=lambda d: _dist(d.center, sl.center))
-            used_nn.add(id(det))
-            src_pts.append([sl.center_x, sl.center_y])
-            dst_pts.append([det.center_x, det.center_y])
-        logger.info("align: nearest-neighbor gave %d pairs", len(src_pts))
+    # クラス名一致ペアが不十分な場合はアライメントをスキップ
+    # 近傍マッチは空トレイのノイズ検出でスロット位置を歪める危険があるため使用しない
+    if len(src_pts) < 2:
+        logger.info("align: class-match %d pairs insufficient → returning raw slots", len(src_pts))
+        return slots
 
     # Adaptive RANSAC threshold: ~40% of average slot size, clamped
     if slots:
@@ -701,12 +691,11 @@ def _gate_detections_by_layout(dets: List[_Det], slots: List[_Slot]) -> List[_De
     kept: List[_Det] = []
     dropped = 0
     for det in dets:
-        if det.confidence >= req_conf:
-            kept.append(det)
-            continue
         if det.confidence < weak_min:
             dropped += 1
             continue
+        # 信頼度に関わらず全ての検出にスロット近傍チェックを適用
+        # 空トレイのノイズがスロットから遠い位置に現れた場合に除去する
         dists = [_dist(det.center, sc) for sc in slot_centers]
         best_i = min(range(len(dists)), key=lambda i: dists[i])
         if dists[best_i] <= slot_gates[best_i]:
@@ -1210,12 +1199,21 @@ def run_detection(
     #    tray-relative layout  → confine to tray region to reduce background noise
     if is_tray_relative and tray_box:
         dets = _run_yolo_in_tray(product_model_path, pil_img, tray_box, DEFAULT_CONF)
-        # 3c. tray cropで検出0件の場合は全画像で再推論（トレイ位置推定誤りを補完）
+        # 3c. tray cropで検出0件 かつ トレイ検出が不確か な場合のみ全画像で再推論
+        # トレイ検出が信頼できる（高conf・複数コーナー）場合は0件=空トレイとして扱う
         if not dets:
-            logger.info("tray_crop: 0 dets → full-image detection fallback")
-            dets = _run_yolo(product_model_path, pil_img, req_conf=DEFAULT_CONF)
-            if dets:
-                logger.info("full-image fallback: %d dets (tray bounds filter to follow)", len(dets))
+            tray_conf_val = tray_box.get("conf", 0.0)
+            n_corners = len(tray_box.get("corners", {}))
+            tray_reliable = (tray_conf_val >= QUALITY_MIN_TRAY_CONF and n_corners >= 2)
+            if not tray_reliable:
+                logger.info("tray_crop: 0 dets + unreliable tray (conf=%.3f corners=%d) → full-image fallback",
+                            tray_conf_val, n_corners)
+                dets = _run_yolo(product_model_path, pil_img, req_conf=DEFAULT_CONF)
+                if dets:
+                    logger.info("full-image fallback: %d dets (tray bounds filter to follow)", len(dets))
+            else:
+                logger.info("tray_crop: 0 dets + reliable tray (conf=%.3f corners=%d) → treating as empty tray",
+                            tray_conf_val, n_corners)
     else:
         dets = _run_yolo(product_model_path, pil_img, req_conf=DEFAULT_CONF)
 
