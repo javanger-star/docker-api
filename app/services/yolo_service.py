@@ -580,6 +580,22 @@ def _align_layout_to_detections(slots: List[_Slot], dets: List[_Det]) -> List[_S
             src_pts.append([sl.center_x, sl.center_y])
             dst_pts.append([det.center_x, det.center_y])
 
+    # クラス名一致ペアが不十分な場合は近傍マッチにフォールバック
+    # クラス名体系が異なる場合（CLASS_CHECK無効時など）でも位置補正を可能にする
+    if len(src_pts) < 2 and dets_for_align:
+        logger.info("align: class-match %d pairs → nearest-neighbor fallback", len(src_pts))
+        src_pts, dst_pts = [], []
+        used_nn: set = set()
+        for sl in slots:
+            cands = [d for d in dets_for_align if id(d) not in used_nn]
+            if not cands:
+                break
+            det = min(cands, key=lambda d: _dist(d.center, sl.center))
+            used_nn.add(id(det))
+            src_pts.append([sl.center_x, sl.center_y])
+            dst_pts.append([det.center_x, det.center_y])
+        logger.info("align: nearest-neighbor gave %d pairs", len(src_pts))
+
     # Adaptive RANSAC threshold: ~40% of average slot size, clamped
     if slots:
         avg_slot_px = float(np.mean([max(s.width, s.height) for s in slots]))
@@ -1194,6 +1210,12 @@ def run_detection(
     #    tray-relative layout  → confine to tray region to reduce background noise
     if is_tray_relative and tray_box:
         dets = _run_yolo_in_tray(product_model_path, pil_img, tray_box, DEFAULT_CONF)
+        # 3c. tray cropで検出0件の場合は全画像で再推論（トレイ位置推定誤りを補完）
+        if not dets:
+            logger.info("tray_crop: 0 dets → full-image detection fallback")
+            dets = _run_yolo(product_model_path, pil_img, req_conf=DEFAULT_CONF)
+            if dets:
+                logger.info("full-image fallback: %d dets (tray bounds filter to follow)", len(dets))
     else:
         dets = _run_yolo(product_model_path, pil_img, req_conf=DEFAULT_CONF)
 
@@ -1331,21 +1353,11 @@ def run_detection(
     #      ok/misplaced → RANSAC アライメント後の位置（実製品がいる場所）
     #      missing      → レイアウト元の位置（あるべき場所）  ← RANSAC で歪まない
     if slots and dets:
+        # 検出物の実位置を使って常にRANSACでスロット位置を補正する
+        # RANSACが信頼性不足と判断した場合は元のスロット位置をそのまま返す
         tray_conf_val = tray_box.get("conf", 1.0) if tray_box else 0.0
-        if not is_tray_relative:
-            # image-relative layout: always RANSAC-align to actual detections
-            logger.info("image-relative layout → RANSAC alignment (tray geom not used)")
-            aligned = _align_layout_to_detections(slots, dets)
-        elif tray_applied and tray_conf_val < QUALITY_MIN_TRAY_CONF:
-            logger.info("tray conf=%.3f < %.2f → RANSAC alignment to correct slot positions",
-                        tray_conf_val, QUALITY_MIN_TRAY_CONF)
-            aligned = _align_layout_to_detections(slots, dets)
-        elif tray_applied:
-            logger.info("tray conf=%.3f >= %.2f → using tray geometry directly",
-                        tray_conf_val, QUALITY_MIN_TRAY_CONF)
-            aligned = slots
-        else:
-            aligned = _align_layout_to_detections(slots, dets)
+        aligned = _align_layout_to_detections(slots, dets)
+        logger.info("RANSAC alignment applied (tray_applied=%s tray_conf=%.3f)", tray_applied, tray_conf_val)
         dets_gated = _gate_detections_by_layout(dets, aligned)
         match_results = _match_greedy(dets_gated, aligned)
         match_results = _filter_extras(match_results)
