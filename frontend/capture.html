@@ -264,6 +264,7 @@ body{background:#000;color:#fff;font-family:sans-serif;height:100dvh;display:fle
       <button id="capture-btn"></button>
       <button class="ctrl-btn" id="flip-btn">🔄</button>
       <button class="ctrl-btn" id="rotate-btn" title="横固定">⟳</button>
+      <button class="ctrl-btn" id="flip180-btn" title="上下反転">↕</button>
     </div>
     <button id="end-btn">終了してスキャンに戻る</button>
   </div>
@@ -471,14 +472,32 @@ async function captureAndSend() {
     // 縦向き動画（vh > vw）を横向きに回転してからサーバーへ送る。
     // モデルは横向き画像で学習済みのため、縦向きのまま送ると検出精度が極端に落ちる。
     // 回転後の画像をそのまま保存するため、結果表示の座標系も横向きで統一される。
+    // 端末の向きを取得（screen.orientation 未対応の場合は window.orientation で補完）
+    const _orientAngle = (typeof screen.orientation !== 'undefined')
+      ? screen.orientation.angle
+      : (typeof window.orientation !== 'undefined' ? (window.orientation + 360) % 360 : 0);
+    // landscape-secondary（angle=270）の機種では drawImage が180°反転する場合がある
+    const _autoFlip = (vh <= vw && _orientAngle === 270);
+    // 自動検出 XOR 手動フリップ（手動ボタンで自動検出を上書きできる）
+    const _doFlip180 = _autoFlip !== _flip180;
+
     const canvas = document.createElement('canvas');
     if (vh > vw) {
-      // 縦向き → 横向き（時計回り90°）
+      // 縦向き → 横向き
       canvas.width  = vh;
       canvas.height = vw;
       const ctx = canvas.getContext('2d');
       ctx.translate(vh / 2, vw / 2);
-      ctx.rotate(Math.PI / 2);
+      // _flip180 が有効なら90°CCW（=270°CW）、通常は90°CW
+      ctx.rotate(_flip180 ? -Math.PI / 2 : Math.PI / 2);
+      ctx.drawImage(video, -vw / 2, -vh / 2, vw, vh);
+    } else if (_doFlip180) {
+      // 横向きで180°反転が必要な場合
+      canvas.width  = vw;
+      canvas.height = vh;
+      const ctx = canvas.getContext('2d');
+      ctx.translate(vw / 2, vh / 2);
+      ctx.rotate(Math.PI);
       ctx.drawImage(video, -vw / 2, -vh / 2, vw, vh);
     } else {
       canvas.width  = vw;
@@ -607,6 +626,7 @@ document.getElementById('end-btn').addEventListener('click', () => {
 let _camScreenActive = false;
 let _restartTimer = null;
 let _manualLandscape = false;  // 手動横固定フラグ
+let _flip180 = localStorage.getItem('captureFlip180') === '1';  // 上下180°反転フラグ
 
 const _mqLandscape = window.matchMedia('(orientation: landscape)');
 
@@ -668,6 +688,15 @@ document.getElementById('rotate-btn').addEventListener('click', () => {
     clearTimeout(_restartTimer);
     _restartTimer = setTimeout(() => startCamera(), 300);
   }
+});
+
+// 180°反転ボタン（カメラが上下逆に取り付けられている場合）
+const _flip180Btn = document.getElementById('flip180-btn');
+_flip180Btn.style.color = _flip180 ? '#f90' : '#fff';
+_flip180Btn.addEventListener('click', () => {
+  _flip180 = !_flip180;
+  localStorage.setItem('captureFlip180', _flip180 ? '1' : '0');
+  _flip180Btn.style.color = _flip180 ? '#f90' : '#fff';
 });
 
 // ── ピンチズーム ─────────────────────────────────────────────
