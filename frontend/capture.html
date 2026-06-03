@@ -483,16 +483,16 @@ async function captureAndSend() {
 
     const canvas = document.createElement('canvas');
     if (vh > vw) {
-      // 縦向き → 横向き
+      // 縦向き → 横向き: 常に時計回り90°（_flip180の影響を受けない）
+      // モデルは横向き画像で学習済みのため固定
       canvas.width  = vh;
       canvas.height = vw;
       const ctx = canvas.getContext('2d');
       ctx.translate(vh / 2, vw / 2);
-      // _flip180 が有効なら90°CCW（=270°CW）、通常は90°CW
-      ctx.rotate(_flip180 ? -Math.PI / 2 : Math.PI / 2);
+      ctx.rotate(Math.PI / 2);
       ctx.drawImage(video, -vw / 2, -vh / 2, vw, vh);
     } else if (_doFlip180) {
-      // 横向きで180°反転が必要な場合
+      // 横向きで180°反転が必要な場合（↕ボタンまたは自動検出）
       canvas.width  = vw;
       canvas.height = vh;
       const ctx = canvas.getContext('2d');
